@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "DeliveryTracker",
+    "slug": "DeliveryTracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "deliverytracker",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
