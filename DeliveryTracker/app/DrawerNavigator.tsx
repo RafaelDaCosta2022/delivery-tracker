@@ -1,4 +1,3 @@
-// app/DrawerNavigator.js
 import React, { useEffect, useState } from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -18,15 +17,19 @@ const Drawer = createDrawerNavigator();
 
 export default function DrawerNavigator() {
   const [tipoUsuario, setTipoUsuario] = useState('');
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
     const buscarTipo = async () => {
       const user = await AsyncStorage.getItem('usuario');
       const { tipo } = JSON.parse(user || '{}');
       setTipoUsuario(tipo);
+      setCarregando(false);
     };
     buscarTipo();
   }, []);
+
+  if (carregando) return null; // Evita renderização prematura
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

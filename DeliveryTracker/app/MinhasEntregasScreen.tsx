@@ -1,9 +1,10 @@
-// ✅ MinhasEntregasScreen.tsx com visualização do canhoto e envio por câmera
+// ✅ MinhasEntregasScreen.tsx com filtro, visualização e envio de canhoto por câmera
 
 import React, { useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import ProtectedRoute from './ProtectedRoute';
 import {
+  Modal,
   View,
   Text,
   StyleSheet,
@@ -16,7 +17,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { API } from './config';
+import { API, IP } from './config';
 
 export default function MinhasEntregasScreen() {
   const [entregas, setEntregas] = useState([]);
@@ -28,18 +29,18 @@ export default function MinhasEntregasScreen() {
     tentarReenviarPendentes();
   }, []);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      carregarEntregas();
+    }, [])
+  );
+
   const solicitarPermissaoCamera = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permissão necessária', 'Permita acesso à câmera para tirar fotos.');
     }
   };
-
-  useFocusEffect(
-    React.useCallback(() => {
-      carregarEntregas();
-    }, [])
-  );
 
   const carregarEntregas = async () => {
     setCarregando(true);
@@ -54,55 +55,75 @@ export default function MinhasEntregasScreen() {
       if (!response.ok) throw new Error();
 
       const data = await response.json();
-      setEntregas(data);
+
+      // Filtro: pendentes ou entregues no dia atual
+      const hoje = new Date().toDateString();
+      const filtradas = data.filter((e: any) =>
+        e.status === 'PENDENTE' || new Date(e.data_entrega).toDateString() === hoje
+      );
+      setEntregas(filtradas);
     } catch {
       Alert.alert('Erro', 'Não foi possível carregar suas entregas.');
     }
     setCarregando(false);
   };
 
-  const enviarCanhoto = async (nota: string) => {
-    const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
+  const enviarCanhoto = async (entregaId: number, status: string) => {
+  if (status === 'ENTREGUE') {
+    Alert.alert('Entrega já concluída', 'Não é possível enviar canhoto para entregas finalizadas.');
+    return;
+  }
+
+  const res = await ImagePicker.launchCameraAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    quality: 0.7,
+  });
+
+  if (res.canceled) return;
+
+  const { uri } = res.assets[0];
+  const fileName = uri.split('/').pop() || 'canhoto.jpg';
+  const fileType = fileName.split('.').pop();
+
+  const formData = new FormData();
+  formData.append('file', {
+    uri,
+    name: fileName,
+    type: `image/${fileType}`,
+  } as any);
+
+  const rede = await NetInfo.fetch();
+  if (!rede.isConnected) {
+    await salvarOffline(entregaId, formData);
+    Alert.alert('Offline', '📦 Canhoto salvo localmente e será reenviado assim que estiver online.');
+    return;
+  }
+
+  try {
+    const usuario = await AsyncStorage.getItem('usuario');
+    const { token } = JSON.parse(usuario || '{}');
+
+    const response = await fetch(`https://${IP}/canhoto/${entregaId}`, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        Authorization: token,
+      },
     });
-    if (res.canceled) return;
 
-    const { uri } = res.assets[0];
-    const fileName = uri.split('/').pop() || 'canhoto.jpg';
-    const fileType = fileName.split('.').pop();
+    const data = await response.json();
+    console.log('📥 Resposta do servidor:', data);
 
-    const formData = new FormData();
-    formData.append('nota', nota);
-    formData.append('imagem', {
-      uri,
-      name: fileName,
-      type: `image/${fileType}`,
-    } as any);
+    if (!response.ok || !data.success) throw new Error();
 
-    const rede = await NetInfo.fetch();
-    if (!rede.isConnected) {
-      await salvarOffline(nota, formData);
-      Alert.alert('Offline', 'Canhoto salvo localmente e será reenviado.');
-      return;
-    }
+    Alert.alert('✅ Enviado', 'Canhoto enviado com sucesso!');
+    carregarEntregas();
+  } catch (err) {
+    await salvarOffline(entregaId, formData);
+    Alert.alert('Erro', '❌ Falha ao enviar. Salvamos localmente para reenviar depois.');
+  }
+};
 
-    try {
-      const response = await fetch(API.UPLOAD_CANHOTO, {
-        method: 'POST',
-        body: formData,
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      if (!response.ok) throw new Error();
-
-      Alert.alert('Sucesso', 'Canhoto enviado com sucesso.');
-      carregarEntregas();
-    } catch {
-      await salvarOffline(nota, formData);
-      Alert.alert('Erro', 'Falha ao enviar. Salvo localmente.');
-    }
-  };
 
   const salvarOffline = async (nota: string, formData: FormData) => {
     const pendentes = await AsyncStorage.getItem('canhotosPendentes');
@@ -152,30 +173,37 @@ export default function MinhasEntregasScreen() {
       <Text>{item.cliente_nome}</Text>
 
       <Text style={styles.label}>📌 Status:</Text>
-      <Text
-        style={[styles.status, item.status === 'PENDENTE' ? styles.pendente : styles.entregue]}
-      >
+      <Text style={[styles.status, item.status === 'PENDENTE' ? styles.pendente : styles.entregue]}>
         {item.status}
       </Text>
 
       {item.canhoto_path && (
         <TouchableOpacity
           style={styles.preview}
-          onPress={() => Alert.alert('Canhoto', 'Visualização futura em tela dedicada')}
+          onPress={() => {
+            const nome = item.canhoto_path.split(/[\\/]/).pop();
+            Alert.alert('🧾 Canhoto', '', [
+              { text: 'Fechar' },
+            ]);
+          }}
         >
-          <Image
-            source={{ uri: `http://192.168.0.108:3000/${item.canhoto_path}` }}
-            style={styles.canhotoImg}
-          />
+          <Image source={{ uri: `https://${IP}/${item.canhoto_path}` }} style={styles.canhotoImg} />
           <Text style={{ color: '#555', marginTop: 6 }}>Ver Canhoto</Text>
         </TouchableOpacity>
       )}
 
       {item.status === 'PENDENTE' && (
-        <TouchableOpacity style={styles.btnCanhoto} onPress={() => enviarCanhoto(item.nota)}>
+        <TouchableOpacity style={styles.btnCanhoto} onPress={() => enviarCanhoto(item.id, item.status)}>
           <Text style={styles.btnText}>📸 Tirar Foto do Canhoto</Text>
         </TouchableOpacity>
       )}
+
+      {item.observacao ? (
+        <>
+          <Text style={styles.label}>📝 Observação:</Text>
+          <Text>{item.observacao}</Text>
+        </>
+      ) : null}
     </View>
   );
 

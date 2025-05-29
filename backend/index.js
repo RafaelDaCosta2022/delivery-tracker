@@ -164,11 +164,27 @@ app.post('/canhoto/:id', autenticar, upload.single('file'), (req, res) => {
 
 // Rota /minhas-entregas
 app.get('/minhas-entregas', autenticar, (req, res) => {
-  const motoristaId = req.usuario.id;
-  const sql = 'SELECT * FROM entregas WHERE motorista = ? ORDER BY data_lancamento DESC';
-  db.query(sql, [motoristaId], (err, results) => {
-    if (err) return res.status(500).json({ error: 'Erro ao buscar entregas' });
-    res.json(results);
+  const usuarioId = req.usuario.id;
+  const tipoUsuario = req.usuario.tipo;
+
+  if (tipoUsuario !== 'motorista') {
+    return res.status(403).json({ erro: 'Acesso permitido apenas para motoristas' });
+  }
+
+  const query = `
+    SELECT e.*
+    FROM entregas e
+    WHERE e.motorista = ?
+      AND (
+        e.status = 'PENDENTE'
+        OR (e.status = 'ENTREGUE' AND DATE(e.data_entrega) = CURDATE())
+      )
+    ORDER BY e.data_emissao DESC
+  `;
+
+  db.query(query, [usuarioId], (err, resultados) => {
+    if (err) return res.status(500).json({ erro: 'Erro ao buscar entregas' });
+    res.json(resultados);
   });
 });
 

@@ -11,15 +11,11 @@ import {
   Button,
   Modal,
   TextInput,
-  Platform,
   ScrollView,
   Image,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { API } from './config';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 
 export default function RelatorioEntregasScreen() {
   const hoje = new Date();
@@ -35,10 +31,7 @@ export default function RelatorioEntregasScreen() {
   const [motoristas, setMotoristas] = useState([]);
   const [novoMotorista, setNovoMotorista] = useState('');
   const [filtroNome, setFiltroNome] = useState('');
-  const [mostrarBusca, setMostrarBusca] = useState(false);
   const [motoristaSelecionado, setMotoristaSelecionado] = useState('');
-  const [mostrarInicio, setMostrarInicio] = useState(false);
-  const [mostrarFim, setMostrarFim] = useState(false);
   const [filtroAtivo, setFiltroAtivo] = useState('MES');
   const [usuarioTipo, setUsuarioTipo] = useState('');
   const [imagemSelecionada, setImagemSelecionada] = useState('');
@@ -61,7 +54,6 @@ export default function RelatorioEntregasScreen() {
   const buscarEntregas = async () => {
     setCarregando(true);
     const { inicio, fim } = calcularDatasFiltro();
-
     let url = `${API.ENTREGAS}?inicio=${inicio}&fim=${fim}`;
     if (motoristaSelecionado) url += `&motorista=${motoristaSelecionado}`;
     if (filtroNome.length >= 3) url += `&nome=${encodeURIComponent(filtroNome)}`;
@@ -70,15 +62,10 @@ export default function RelatorioEntregasScreen() {
       const usuario = await AsyncStorage.getItem('usuario');
       const token = JSON.parse(usuario || '{}').token;
       const res = await fetch(url, { headers: { Authorization: token } });
-      if (res.status === 401 || res.status === 403) {
-        Alert.alert('Sessão expirada', 'Faça login novamente.');
-        setEntregas([]);
-        return;
-      }
+      if (!res.ok) throw new Error('Erro ao buscar entregas');
       const data = await res.json();
-      if (!Array.isArray(data)) throw new Error('Resposta inesperada do servidor');
-      setEntregas(data);
-    } catch (err) {
+      setEntregas(Array.isArray(data) ? data : []);
+    } catch {
       Alert.alert('Erro', 'Falha ao buscar entregas.');
       setEntregas([]);
     }
@@ -99,12 +86,8 @@ export default function RelatorioEntregasScreen() {
               method: 'DELETE',
               headers: { Authorization: token },
             });
-            if (res.ok) {
-              Alert.alert('Sucesso', 'Canhoto excluído.');
-              buscarEntregas();
-            } else {
-              Alert.alert('Erro', 'Não foi possível excluir o canhoto.');
-            }
+            if (res.ok) buscarEntregas();
+            else Alert.alert('Erro', 'Não foi possível excluir o canhoto.');
           } catch {
             Alert.alert('Erro', 'Erro ao excluir o canhoto.');
           }
@@ -115,9 +98,8 @@ export default function RelatorioEntregasScreen() {
 
   const carregarMotoristas = async () => {
     const usuario = await AsyncStorage.getItem('usuario');
-    const { tipo } = JSON.parse(usuario || '{}');
+    const { tipo, token } = JSON.parse(usuario || '{}');
     setUsuarioTipo(tipo);
-    const token = JSON.parse(usuario || '{}').token;
     const res = await fetch(API.USUARIOS, { headers: { Authorization: token } });
     const dados = await res.json();
     if (Array.isArray(dados)) setMotoristas(dados.filter((u) => u.tipo === 'motorista'));
@@ -130,10 +112,7 @@ export default function RelatorioEntregasScreen() {
   };
 
   const reatribuirEntrega = async () => {
-    if (!novoMotorista) {
-      Alert.alert('Erro', 'Selecione um motorista.');
-      return;
-    }
+    if (!novoMotorista) return Alert.alert('Erro', 'Selecione um motorista.');
     const usuario = await AsyncStorage.getItem('usuario');
     const token = JSON.parse(usuario || '{}').token;
     await fetch(API.ATRIBUIR_MOTORISTA, {
@@ -177,10 +156,7 @@ export default function RelatorioEntregasScreen() {
             setImagemSelecionada(url);
             setModalImagem(true);
           }}>
-            <Image
-              source={{ uri: `${API.BASE}/canhoto/${item.canhoto_path.split('/').pop()}` }}
-              style={{ width: 100, height: 100, borderRadius: 8 }}
-            />
+            <Image source={{ uri: `${API.BASE}/canhoto/${item.canhoto_path.split('/').pop()}` }} style={{ width: 100, height: 100, borderRadius: 8 }} />
           </TouchableOpacity>
           {usuarioTipo === 'admin' && (
             <TouchableOpacity style={{ marginTop: 4 }} onPress={() => excluirCanhoto(item.nota)}>
@@ -195,7 +171,7 @@ export default function RelatorioEntregasScreen() {
   );
 
   return (
-     <ProtectedRoute permitido={['admin']}>
+    <ProtectedRoute permitido={['admin']}>
       <ScrollView style={styles.container}>
         <Text style={styles.title}>📦 Relatório de Entregas</Text>
         <View style={styles.filtros}>
@@ -226,9 +202,7 @@ export default function RelatorioEntregasScreen() {
             <TouchableOpacity onPress={() => setModalImagem(false)} style={styles.modalFechar}>
               <Text style={{ color: '#fff', fontWeight: 'bold' }}>Fechar</Text>
             </TouchableOpacity>
-            {imagemSelecionada && (
-              <Image source={{ uri: imagemSelecionada }} style={styles.imgAmpliada} />
-            )}
+            {imagemSelecionada && <Image source={{ uri: imagemSelecionada }} style={styles.imgAmpliada} />}
           </View>
         </Modal>
         <Modal visible={modalVisible} transparent animationType="slide">
@@ -261,8 +235,6 @@ const styles = StyleSheet.create({
   label: { fontWeight: 'bold', marginTop: 6 },
   pendente: { color: '#e67e22', fontWeight: 'bold' },
   entregue: { color: '#27ae60', fontWeight: 'bold' },
-  exportarBtn: { backgroundColor: '#007bff', padding: 14, margin: 20, borderRadius: 8, alignItems: 'center' },
-  exportarTexto: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   modalContainer: { flex: 1, backgroundColor: '#000000dd', justifyContent: 'center', alignItems: 'center' },
   modalFechar: { position: 'absolute', top: 50, right: 30, padding: 10 },
   imgAmpliada: { width: '90%', height: '70%', resizeMode: 'contain', borderRadius: 10 },

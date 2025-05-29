@@ -8,6 +8,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Linking } from 'react-native';
+import { IP } from './config';
 import {
   View,
   Text,
@@ -190,7 +191,8 @@ const reenviarCanhoto = async (entregaId: number) => {
       <TouchableOpacity
         onPress={() => {
          const filename = e.canhoto_path.split(/[\\/]/).pop();
-         const url = `http://192.168.0.108:3000/uploads/${filename}`;
+        const url = `https://${IP}/uploads/${filename}`;
+
           setImagemSelecionada(url);
           setModalImagemVisivel(true);
         }}
