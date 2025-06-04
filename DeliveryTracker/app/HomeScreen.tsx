@@ -3,128 +3,78 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  ActivityIndicator,
+  FlatList,
 } from 'react-native';
-import { useNavigation, DrawerActions } from '@react-navigation/native';
-import { ROUTES } from './(tabs)/routes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import ProtectedRoute from './ProtectedRoute';
+import { API } from './config';
 
 export default function HomeScreen() {
-  const navigation = useNavigation();
-  const [tipoUsuario, setTipoUsuario] = useState('');
+  const [resumo, setResumo] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+
+  const hoje = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
-    const carregarUsuario = async () => {
-      const dados = await AsyncStorage.getItem('usuario');
-      if (dados) {
-        const usuario = JSON.parse(dados);
-        setTipoUsuario(usuario.tipo);
+    const carregarResumo = async () => {
+      setCarregando(true);
+      try {
+        const user = await AsyncStorage.getItem('usuario');
+        const token = JSON.parse(user || '{}').token;
+        const res = await fetch(`${API.RELATORIO_VENDEDOR}?data=${hoje}`, {
+          headers: { Authorization: token },
+        });
+        const json = await res.json();
+        setResumo(json?.resumo || []);
+      } catch (err) {
+        console.error(err);
       }
+      setCarregando(false);
     };
-    carregarUsuario();
+
+    carregarResumo();
   }, []);
 
   return (
-    <ProtectedRoute>
-      <View style={styles.container}>
-        <TouchableOpacity
-          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-          style={styles.menuButton}
-        >
-          <Text style={styles.menuText}>☰ Menu</Text>
-        </TouchableOpacity>
+    <View style={styles.container}>
+      <Text style={styles.titulo}>🏠 Painel Inicial</Text>
 
-        <Text style={styles.title}>Bem-vindo!</Text>
-
-        {tipoUsuario === 'vendedor' && (
-          <>
-            <TouchableOpacity
-              style={styles.button}
-              onPress={() => navigation.navigate(ROUTES.LANCAR_NOTA)}
-            >
-              <Text style={styles.buttonText}>🧾 Lançar Nota</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.button}
-              onPress={() => navigation.navigate(ROUTES.BUSCAR_ENTREGAS)}
-            >
-              <Text style={styles.buttonText}>📋 Ver Entregas</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.button}
-              onPress={() => navigation.navigate(ROUTES.VENDEDOR)}
-            >
-              <Text style={styles.buttonText}>📊 Painel do Vendedor</Text>
-            </TouchableOpacity>
-          </>
-        )}
-
-        {tipoUsuario === 'motorista' && (
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => navigation.navigate(ROUTES.MINHAS_ENTREGAS)}
-          >
-            <Text style={styles.buttonText}>🚚 Minhas Entregas</Text>
-          </TouchableOpacity>
-        )}
-
-        {tipoUsuario === 'admin' && (
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => navigation.navigate(ROUTES.CADASTRO_USUARIO)}
-          >
-            <Text style={styles.buttonText}>➕ Cadastrar Novo Usuário</Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: '#dc3545' }]}
-          onPress={async () => {
-            await AsyncStorage.removeItem('usuario');
-            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-          }}
-        >
-          <Text style={styles.buttonText}>🚪 Sair</Text>
-        </TouchableOpacity>
-      </View>
-    </ProtectedRoute>
+      {carregando ? (
+        <ActivityIndicator size="large" color="#007bff" />
+      ) : (
+        <>
+          <Text style={styles.subtitulo}>🚚 Motoristas com Entregas</Text>
+          <FlatList
+            data={resumo}
+            keyExtractor={(item) => item.motorista_id?.toString() || Math.random().toString()}
+            renderItem={({ item }) => (
+              <View style={styles.card}>
+                <Text style={styles.motorista}>
+                  {item.motorista_nome || 'Sem motorista'}
+                </Text>
+                <Text>Total de notas: {item.total_notas}</Text>
+                <Text>Valor total: R$ {item.valor_total?.toFixed(2) || 0}</Text>
+                <Text>✅ Entregues: {item.entregues} | 🚚 Pendentes: {item.pendentes}</Text>
+              </View>
+            )}
+          />
+        </>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 24,
-    backgroundColor: '#f2f2f2',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginVertical: 20,
-    textAlign: 'center',
-  },
-  button: {
-    backgroundColor: '#4a90e2',
-    padding: 18,
-    marginBottom: 16,
+  container: { flex: 1, padding: 16, backgroundColor: '#fff' },
+  titulo: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
+  subtitulo: { fontSize: 18, fontWeight: '600', marginBottom: 10 },
+  card: {
+    backgroundColor: '#f0f8ff',
+    padding: 14,
+    marginBottom: 12,
     borderRadius: 10,
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  menuButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    alignSelf: 'flex-start',
-  },
-  menuText: {
-    fontSize: 22,
-    color: '#333',
-  },
+  motorista: { fontWeight: 'bold', fontSize: 16, marginBottom: 4 },
 });

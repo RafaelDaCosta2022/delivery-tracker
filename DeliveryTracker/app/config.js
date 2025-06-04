@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ✅ Link ngrok ativo (substitui o IP local)
-const IP = '753f-2804-1b3-9200-e122-7c2d-2d77-12fa-a636.ngrok-free.app';
+const IP = 'b549-2804-1b3-9200-e122-7c76-7680-c94f-3896.ngrok-free.app';
 
 export const API = {
+  BASE: `https://${IP}`,
   LOGIN: `https://${IP}/login`,
   CADASTRO: `https://${IP}/cadastro`,
   ENTREGAS: `https://${IP}/entregas`,
@@ -13,6 +14,7 @@ export const API = {
   MINHAS_ENTREGAS: () => `https://${IP}/minhas-entregas`,
   ATRIBUIR_MOTORISTA: `https://${IP}/atribuir-motorista`,
   USUARIOS: `https://${IP}/usuarios`,
+  RELATORIO_VENDEDOR: `https://${IP}/relatorio-vendedor`,
 };
 
 export const authHeader = async () => {

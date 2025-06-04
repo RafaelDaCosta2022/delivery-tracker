@@ -161,30 +161,79 @@ app.post('/canhoto/:id', autenticar, upload.single('file'), (req, res) => {
 });
 
 
-
-// Rota /minhas-entregas
+// ✅ Rota: /minhas-entregas - Versão Corrigida
 app.get('/minhas-entregas', autenticar, (req, res) => {
   const motoristaId = req.usuario.id;
-  const sql = 'SELECT * FROM entregas WHERE motorista = ? ORDER BY data_lancamento DESC';
+  
+  console.log(`🔍 Buscando entregas para motorista ID: ${motoristaId}`);
+  
+  // Consulta corrigida: busca TODAS as entregas do motorista, não apenas pendentes
+  const sql = `
+    SELECT * 
+    FROM entregas 
+    WHERE motorista = ?
+    ORDER BY data_emissao DESC
+  `;
+  
   db.query(sql, [motoristaId], (err, results) => {
-    if (err) return res.status(500).json({ error: 'Erro ao buscar entregas' });
+    if (err) {
+      console.error('❌ Erro ao buscar entregas:', err);
+      return res.status(500).json({ error: 'Erro ao buscar entregas' });
+    }
+    
+    console.log(`✅ Encontradas ${results.length} entregas para o motorista ${motoristaId}`);
+    
+    // Filtra apenas pendentes para exibição (opcional)
+    const entregasPendentes = results.filter(e => e.status === 'PENDENTE');
+    console.log(`📦 ${entregasPendentes.length} entregas pendentes`);
+    
     res.json(results);
   });
 });
-
-// Atribuição protegida de motorista (sem alterar entregas ENTREGUE)
+// ✅ Rota: /atribuir-motorista - Versão Corrigida
 app.put('/atribuir-motorista', autenticar, (req, res) => {
   const { entregaId, motoristaId } = req.body;
-  if (!entregaId || !motoristaId) return res.status(400).json({ error: 'Dados incompletos' });
+  
+  if (!entregaId || !motoristaId) {
+    return res.status(400).json({ error: 'Dados incompletos' });
+  }
 
-  db.query('SELECT status FROM entregas WHERE id = ?', [entregaId], (err, results) => {
-    if (err || results.length === 0) return res.status(400).json({ error: 'Entrega não encontrada' });
-    if (results[0].status === 'ENTREGUE') return res.status(403).json({ error: 'Entrega já concluída' });
+  console.log(`🔧 Atribuindo entrega ${entregaId} ao motorista ${motoristaId}`);
 
-    db.query('UPDATE entregas SET motorista = ? WHERE id = ?', [motoristaId, entregaId], (err) => {
-      if (err) return res.status(500).json({ error: 'Erro ao atualizar motorista' });
-      res.json({ success: true });
-    });
+  // Verifica se a entrega existe
+  db.query('SELECT * FROM entregas WHERE id = ?', [entregaId], (err, results) => {
+    if (err) {
+      console.error('❌ Erro ao buscar entrega:', err);
+      return res.status(500).json({ error: 'Erro ao buscar entrega' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Entrega não encontrada' });
+    }
+
+    const entrega = results[0];
+    
+    // Verifica se já está entregue
+    if (entrega.status === 'ENTREGUE') {
+      return res.status(400).json({ 
+        error: 'Entrega já concluída, não pode ser reatribuída'
+      });
+    }
+
+    // PERMITE REATRIBUIR MESMO SE JÁ TIVER MOTORISTA
+    db.query(
+      'UPDATE entregas SET motorista = ?, status = "PENDENTE" WHERE id = ?',
+      [motoristaId, entregaId],
+      (updateErr) => {
+        if (updateErr) {
+          console.error('❌ Erro ao atualizar entrega:', updateErr);
+          return res.status(500).json({ error: 'Erro ao atualizar entrega' });
+        }
+        
+        console.log(`✅ Entrega ${entregaId} atribuída com sucesso ao motorista ${motoristaId}`);
+        res.json({ success: true });
+      }
+    );
   });
 });
 
@@ -348,23 +397,18 @@ app.get('/relatorio-vendedor', autenticar, (req, res) => {
 
 
 
+// Atualize a rota de uploads para usar caminho absoluto
 app.get('/uploads/:filename', (req, res) => {
-  const filePath = path.join(__dirname, 'uploads', req.params.filename);
-
+  const filePath = path.join(__dirname, req.params.filename); // Corrigido aqui
+  
   if (fs.existsSync(filePath)) {
-    const tipoMime = mime.contentType(filePath);
-    if (tipoMime) {
-      res.setHeader('Content-Type', tipoMime);
-    }
+    const tipoMime = mime.contentType(path.extname(filePath));
+    if (tipoMime) res.setHeader('Content-Type', tipoMime);
     res.sendFile(filePath);
   } else {
     res.status(404).json({ error: 'Arquivo não encontrado' });
   }
 });
-
-
-
-
 
 
 // Excluir canhoto (somente admin)
