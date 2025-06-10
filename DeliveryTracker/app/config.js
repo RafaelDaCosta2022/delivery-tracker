@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ✅ Link ngrok ativo (substitui o IP local)
-const IP = 'b549-2804-1b3-9200-e122-7c76-7680-c94f-3896.ngrok-free.app';
+const IP = 'de42-2804-1b3-9201-f2c-f943-a489-6191-1215.ngrok-free.app';
 
 export const API = {
   BASE: `https://${IP}`,

@@ -50,45 +50,40 @@ export default function LoginScreen() {
   }, []);
 
   const logar = async () => {
-    if (!nome || !senha) {
-      Alert.alert('Erro', 'Preencha todos os campos.');
-      return;
-    }
+  if (!nome || !senha) {
+    Alert.alert('Erro', 'Preencha todos os campos.');
+    return;
+  }
 
-    setCarregando(true);
+  setCarregando(true);
 
-    try {
-      const response = await fetch(API.LOGIN, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome, senha }),
-      });
+  try {
+    const response = await fetch(API.LOGIN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, senha }),
+    });
 
-      const data = await response.json();
+    const data = await response.json();
 
-      if (!response.ok) {
-        Alert.alert('Erro', data.error || 'Falha no login');
-        setCarregando(false);
-        return;
-      }
-
+    if (!response.ok) {
+      Alert.alert('Erro', data.error || 'Falha no login');
+    } else {
       await AsyncStorage.setItem('usuario', JSON.stringify({ ...data, senha }));
 
-      if (data.tipo === 'motorista') {
-        navigation.reset({ index: 0, routes: [{ name: 'App' }] });
-      } else if (data.tipo === 'vendedor') {
-        navigation.reset({ index: 0, routes: [{ name: 'App' }] });
-      } else if (data.tipo === 'admin') {
-        navigation.reset({ index: 0, routes: [{ name: 'App' }] });
+      if (['motorista', 'vendedor', 'admin'].includes(data.tipo)) {
+        navigation.replace('App');
       } else {
         Alert.alert('Erro', 'Tipo de usuário desconhecido.');
       }
-    } catch (err) {
-      Alert.alert('Erro', 'Não foi possível conectar ao servidor.');
     }
-
+  } catch (err) {
+    Alert.alert('Erro', 'Não foi possível conectar ao servidor.');
+  } finally {
     setCarregando(false);
-  };
+  }
+};
+
 
   return (
     <View style={styles.container}>

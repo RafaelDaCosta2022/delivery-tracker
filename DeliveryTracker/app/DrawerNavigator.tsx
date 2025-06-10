@@ -1,54 +1,135 @@
-// app/DrawerNavigator.js
+// DrawerNavigator.js
 import React, { useEffect, useState } from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import HomeScreen from './HomeScreen';
-import LoginScreen from './LoginScreen';
-import CadastroUsuarioScreen from './CadastroUsuarioScreen';
-import LancamentoScreen from './LancamentoScreen';
-import BuscaEntregasScreen from './BuscaEntregasScreen';
+import CentralControleScreen from './CentralControleScreen';
 import MinhasEntregasScreen from './MinhasEntregasScreen';
 import VendedorScreen from './VendedorScreen';
-import EntregasScreen from './EntregasScreen';
-import RelatorioEntregasScreen from './RelatorioEntregasScreen';
+import CadastroUsuarioScreen from './CadastroUsuarioScreen';
+import { ActivityIndicator, View, Text } from 'react-native';
+import CustomDrawerContent from './CustomDrawerContent';
+import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 
 const Drawer = createDrawerNavigator();
 
-export default function DrawerNavigator() {
-  const [tipoUsuario, setTipoUsuario] = useState('');
+export default function DrawerNavigator({ navigation }) {
+  const [usuario, setUsuario] = useState(null);
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    const buscarTipo = async () => {
-      const user = await AsyncStorage.getItem('usuario');
-      const { tipo } = JSON.parse(user || '{}');
-      setTipoUsuario(tipo);
+    const carregarUsuario = async () => {
+      const usuarioStorage = await AsyncStorage.getItem('usuario');
+      const usuarioObj = usuarioStorage ? JSON.parse(usuarioStorage) : null;
+      setUsuario(usuarioObj);
+      setCarregando(false);
     };
-    buscarTipo();
+    carregarUsuario();
   }, []);
 
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem('usuario');
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
+  };
+
+  if (carregando) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f9ff' }}>
+        <ActivityIndicator size="large" color="#4a6cff" />
+        <Text style={{ marginTop: 15, color: '#4a6cff', fontSize: 16 }}>Carregando perfil...</Text>
+      </View>
+    );
+  }
+
+  const accentColors = {
+    admin: '#4a6cff',
+    vendedor: '#ff6b6b',
+    motorista: '#6bcebb',
+    default: '#9c7bff'
+  };
+
+  const color = accentColors[usuario?.tipo] || accentColors.default;
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <Drawer.Navigator initialRouteName="Home">
-        <Drawer.Screen
-          name="Login"
-          component={LoginScreen}
-          options={{ drawerItemStyle: { display: 'none' }, headerShown: false }}
+    <Drawer.Navigator
+      drawerContent={(props) => (
+        <CustomDrawerContent 
+          {...props} 
+          usuario={usuario} 
+          accentColor={color} 
+          onLogout={handleLogout} 
         />
-        <Drawer.Screen name="Home" component={HomeScreen} />
-        <Drawer.Screen name="Cadastro de Usuário" component={CadastroUsuarioScreen} />
+      )}
+      screenOptions={({ route }) => ({
+        drawerLabelStyle: { 
+          fontSize: 16,
+          fontFamily: 'Inter-Medium',
+          marginLeft: -10,
+        },
+        drawerItemStyle: {
+          paddingVertical: 4,
+          borderRadius: 10,
+          marginHorizontal: 10,
+          marginVertical: 2,
+        },
+        drawerIcon: ({ focused, color }) => {
+          // Espaçamento maior para todos os ícones
+          const iconStyle = { marginRight: 15, width: 24 };
+          
+          if (route.name === 'Home') {
+            return <Ionicons name={focused ? "home" : "home-outline"} size={24} color={color} style={iconStyle} />;
+          }
+          if (route.name === 'Central de Controle') {
+            return <MaterialIcons name="dashboard" size={24} color={color} style={iconStyle} />;
+          }
+          if (route.name === 'Cadastro de Usuário') {
+            return <FontAwesome5 name="user-plus" size={22} color={color} style={iconStyle} />;
+          }
+          if (route.name === 'Painel do Vendedor') {
+            return <MaterialCommunityIcons name="point-of-sale" size={24} color={color} style={iconStyle} />;
+          }
+          if (route.name === 'Minhas Entregas') {
+            return <FontAwesome5 name="truck" size={22} color={color} style={iconStyle} />;
+          }
+        },
+        drawerActiveBackgroundColor: color + '15',
+        drawerActiveTintColor: color,
+        drawerInactiveTintColor: '#5a5a75',
+        drawerStyle: {
+          width: 300,
+          backgroundColor: '#ffffff',
+        },
+        headerStyle: {
+          backgroundColor: '#ffffff',
+          elevation: 0,
+          shadowOpacity: 0,
+        },
+        headerTintColor: '#2d2d42',
+        headerTitleStyle: {
+          fontFamily: 'Inter-SemiBold',
+          fontSize: 18,
+        },
+      })}
+    >
+      <Drawer.Screen name="Home" component={HomeScreen} />
 
-        {tipoUsuario === 'admin' && (
-          <Drawer.Screen name="Lançar Nota" component={LancamentoScreen} />
-        )}
+      {usuario?.tipo === 'admin' && (
+        <>
+          <Drawer.Screen name="Central de Controle" component={CentralControleScreen} />
+          <Drawer.Screen name="Cadastro de Usuário" component={CadastroUsuarioScreen} />
+        </>
+      )}
 
-        <Drawer.Screen name="Buscar Entregas" component={BuscaEntregasScreen} />
-        <Drawer.Screen name="Minhas Entregas" component={MinhasEntregasScreen} />
+      {usuario?.tipo === 'vendedor' && (
         <Drawer.Screen name="Painel do Vendedor" component={VendedorScreen} />
-        <Drawer.Screen name="Entregas" component={EntregasScreen} />
-        <Drawer.Screen name="Relatório" component={RelatorioEntregasScreen} />
-      </Drawer.Navigator>
-    </GestureHandlerRootView>
+      )}
+
+      {usuario?.tipo === 'motorista' && (
+        <Drawer.Screen name="Minhas Entregas" component={MinhasEntregasScreen} />
+      )}
+    </Drawer.Navigator>
   );
 }
