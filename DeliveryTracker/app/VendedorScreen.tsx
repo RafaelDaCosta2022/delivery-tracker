@@ -21,6 +21,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Animatable from 'react-native-animatable';
 import { RefreshControl } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function VendedorScreen() {
   const [relatorio, setRelatorio] = useState([]);
@@ -37,15 +38,24 @@ export default function VendedorScreen() {
   const [periodo, setPeriodo] = useState('dia'); // 'dia', 'semana', 'mes'
 
   // Animação de entrada
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 800,
-      easing: Easing.out(Easing.exp),
-      useNativeDriver: true,
-    }).start();
-    carregarRelatorio();
-  }, []);
+ useEffect(() => {
+  Animated.timing(fadeAnim, {
+    toValue: 1,
+    duration: 800,
+    easing: Easing.out(Easing.exp),
+    useNativeDriver: true,
+  }).start();
+}, []);
+
+useEffect(() => {
+  carregarRelatorio();
+}, [periodo, filtroData]);
+
+const handleRefresh = () => {
+  setRefreshing(true);
+  carregarRelatorio();
+};
+
 
   // Formatar data para YYYY-MM-DD
   const formattedDate = useMemo(() => {
@@ -53,77 +63,108 @@ export default function VendedorScreen() {
   }, [filtroData]);
 
   // Carregar relatório
-  const carregarRelatorio = async () => {
-    setCarregando(true);
-    try {
-      const headers = await authHeader();
-     const res = await fetch(`${API.RELATORIO_VENDEDOR}?data=${formattedDate}`, { headers });
-      const json = await res.json();
-      setRelatorio(json?.detalhes || []);
+ const carregarRelatorio = async () => {
+  setCarregando(true);
+  try {
+    const usuario = await AsyncStorage.getItem('usuario');
+    const { token } = JSON.parse(usuario || '{}');
 
-    } catch (err) {
-      alert('Erro ao buscar entregas');
-    } finally {
-      setCarregando(false);
-      setRefreshing(false);
+    const url = `${API.ENTREGAS}?data=${formattedDate}&periodo=${periodo}`;
+const res = await fetch(url, {
+  headers: { Authorization: token },
+});
+
+    const json = await res.json();
+
+    setRelatorio(json || []);
+  } catch (err) {
+    alert('Erro ao buscar entregas');
+  } finally {
+    setCarregando(false);
+    setRefreshing(false);
+  }
+};
+
+// 👇 FILTRO igual a Home: só mostra o que tem motorista, pendente ou entregue há no máximo 12h!
+  const entregasValidas = useMemo(() => {
+  const agora = new Date();
+  return relatorio.filter((entrega: any) => {
+    if (!entrega.motorista) return false;
+    if (entrega.status === 'PENDENTE') return true;
+    if (
+      (entrega.status === 'ENTREGUE' || entrega.status === 'CONCLUIDA') &&
+      entrega.data_entrega
+    ) {
+      const dataEntrega = new Date(entrega.data_entrega);
+      const diffHoras = (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
+      return diffHoras <= 12;
     }
-  };
-
-  // Atualizar ao mudar período
-  useEffect(() => {
-    carregarRelatorio();
-  }, [periodo]);
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    carregarRelatorio();
-  };
+    return false;
+  });
+}, [relatorio]);
 
   // Filtra entregas apenas com motorista atribuído
 const entregasComMotorista = useMemo(() => {
   return relatorio.filter((entrega: any) => entrega.motorista && entrega.motorista_nome);
 }, [relatorio]);
 
-// Agrupa as entregas por motorista
+// Agrupa as entregas válidas por motorista
 const entregasAgrupadas = useMemo(() => {
-  // Usa o nome do motorista como chave, pois pode não ter ID único
-  return entregasComMotorista.reduce((acc: any, entrega: any) => {
-    const key = entrega.motorista_nome || 'Não atribuído';
-    if (!acc[key]) {
-      acc[key] = {
-        motorista: entrega.motorista_nome,
+  const grupos: any = {};
+  entregasValidas.forEach((e: any) => {
+    const nome = 
+      (e.motorista_nome && e.motorista_nome.trim())
+        ? e.motorista_nome.trim()
+        : (e.nome_motorista && e.nome_motorista.trim())
+          ? e.nome_motorista.trim()
+          : 'Não atribuído';
+
+    if (!grupos[nome]) {
+      grupos[nome] = {
+        motorista: nome,
         entregas: [],
+        total: 0,
+        valor: 0,
+        pendentes: 0,
+        entregues: 0,
       };
     }
-    acc[key].entregas.push(entrega);
-    return acc;
-  }, {});
-}, [entregasComMotorista]);
+    grupos[nome].entregas.push(e);
+    grupos[nome].total++;
+    grupos[nome].valor += Number(e.valor_total || 0);
+    if (e.status === 'PENDENTE') grupos[nome].pendentes++;
+    if (e.status === 'ENTREGUE' || e.status === 'CONCLUIDA') grupos[nome].entregues++;
+  });
+  return grupos;
+}, [entregasValidas]);
+
+
 
 
   // Calcular totais para gráficos
   const { totalGeral, chartData } = useMemo(() => {
-    const entregues = relatorio.filter((e: any) => e.status === 'ENTREGUE').length;
-    const pendentes = relatorio.length - entregues;
-    const total = relatorio.reduce((acc: number, item: any) => acc + parseFloat(item.valor_total || 0), 0);
-    
-    return {
-      totalGeral: total,
-      chartData: [
-        { name: 'Entregues', value: entregues, color: '#2ecc71' },
-        { name: 'Pendentes', value: pendentes, color: '#e74c3c' }
-      ]
-    };
-  }, [relatorio]);
+  const entregues = entregasValidas.filter((e: any) => e.status === 'ENTREGUE' || e.status === 'CONCLUIDA').length;
+  const pendentes = entregasValidas.length - entregues;
+  const total = entregasValidas.reduce((acc: number, item: any) => acc + parseFloat(item.valor_total || 0), 0);
+  return {
+    totalGeral: total,
+    chartData: [
+      { name: 'Entregues', value: entregues, color: '#2ecc71' },
+      { name: 'Pendentes', value: pendentes, color: '#e74c3c' }
+    ]
+  };
+}, [entregasValidas]);
+
 
   // Filtrar entregas pela busca
   const filteredRelatorio = useMemo(() => {
-    if (!searchText) return relatorio;
-    return relatorio.filter((item: any) =>
-      item.cliente_nome?.toLowerCase().includes(searchText.toLowerCase()) ||
-      item.nota?.toString().includes(searchText)
-    );
-  }, [relatorio, searchText]);
+  if (!searchText) return entregasValidas;
+  return entregasValidas.filter((item: any) =>
+    item.cliente_nome?.toLowerCase().includes(searchText.toLowerCase()) ||
+    item.nota?.toString().includes(searchText)
+  );
+}, [entregasValidas, searchText]);
+
 
 const abrirImagem = (path: string) => {
   setImagemSelecionada(`${API.BASE}/uploads/${path.split('/').pop()}`);
@@ -186,7 +227,17 @@ const abrirImagem = (path: string) => {
   );
 
   // Renderizar item de entrega
-  const renderEntregaItem = ({ item }: any) => (
+  const renderEntregaItem = ({ item }: any) => {
+  // MONTA O NOME DO MOTORISTA NO CONTEXTO CORRETO
+  const nomeMotorista = 
+  (item.motorista_nome && item.motorista_nome.trim())
+    ? item.motorista_nome.trim()
+    : (item.nome_motorista && item.nome_motorista.trim())
+      ? item.nome_motorista.trim()
+      : (item.motorista || 'Não atribuído');
+
+
+  return (
     <Animatable.View 
       animation="fadeInRight"
       duration={500}
@@ -207,7 +258,7 @@ const abrirImagem = (path: string) => {
       <View style={styles.entregaInfo}>
         <Text style={styles.entregaValor}>💰 R$ {parseFloat(item.valor_total).toFixed(2)}</Text>
         <Text style={styles.entregaMotorista}>
-          <Ionicons name="person" size={14} /> {item.motorista_nome || 'Sem motorista'}
+          <Ionicons name="person" size={14} /> {nomeMotorista}
         </Text>
       </View>
       
@@ -227,6 +278,8 @@ const abrirImagem = (path: string) => {
       )}
     </Animatable.View>
   );
+};
+
 
   // Renderizar grupo de motoristas
   const renderMotoristaGroup = (motorista: string, dados: any) => (

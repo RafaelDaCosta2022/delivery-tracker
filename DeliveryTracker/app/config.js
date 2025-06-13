@@ -15,6 +15,7 @@ export const API = {
   ATRIBUIR_MOTORISTA: `https://${IP}/atribuir-motorista`,
   USUARIOS: `https://${IP}/usuarios`,
   RELATORIO_VENDEDOR: `https://${IP}/relatorio-vendedor`,
+  BUSCAR_NOTAS: `http://${IP}:3000/buscar-notas`,
 };
 
 export const authHeader = async () => {

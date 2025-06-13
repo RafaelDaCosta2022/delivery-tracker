@@ -1,4 +1,3 @@
-// DrawerNavigator.js
 import React, { useEffect, useState } from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,6 +6,7 @@ import CentralControleScreen from './CentralControleScreen';
 import MinhasEntregasScreen from './MinhasEntregasScreen';
 import VendedorScreen from './VendedorScreen';
 import CadastroUsuarioScreen from './CadastroUsuarioScreen';
+import BuscaNotasScreen from './BuscarNotasScreen'; // <- Certifique-se que está correto o nome do arquivo
 import { ActivityIndicator, View, Text } from 'react-native';
 import CustomDrawerContent from './CustomDrawerContent';
 import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -75,24 +75,25 @@ export default function DrawerNavigator({ navigation }) {
           marginHorizontal: 10,
           marginVertical: 2,
         },
-        drawerIcon: ({ focused, color }) => {
-          // Espaçamento maior para todos os ícones
+        drawerIcon: ({ focused, color: iconColor }) => {
           const iconStyle = { marginRight: 15, width: 24 };
-          
           if (route.name === 'Home') {
-            return <Ionicons name={focused ? "home" : "home-outline"} size={24} color={color} style={iconStyle} />;
+            return <Ionicons name={focused ? "home" : "home-outline"} size={24} color={iconColor} style={iconStyle} />;
           }
           if (route.name === 'Central de Controle') {
-            return <MaterialIcons name="dashboard" size={24} color={color} style={iconStyle} />;
+            return <MaterialIcons name="dashboard" size={24} color={iconColor} style={iconStyle} />;
           }
           if (route.name === 'Cadastro de Usuário') {
-            return <FontAwesome5 name="user-plus" size={22} color={color} style={iconStyle} />;
+            return <FontAwesome5 name="user-plus" size={22} color={iconColor} style={iconStyle} />;
           }
           if (route.name === 'Painel do Vendedor') {
-            return <MaterialCommunityIcons name="point-of-sale" size={24} color={color} style={iconStyle} />;
+            return <MaterialCommunityIcons name="point-of-sale" size={24} color={iconColor} style={iconStyle} />;
           }
           if (route.name === 'Minhas Entregas') {
-            return <FontAwesome5 name="truck" size={22} color={color} style={iconStyle} />;
+            return <FontAwesome5 name="truck" size={22} color={iconColor} style={iconStyle} />;
+          }
+          if (route.name === 'Buscar Notas') {
+            return <MaterialIcons name="search" size={24} color={iconColor} style={iconStyle} />;
           }
         },
         drawerActiveBackgroundColor: color + '15',
@@ -120,11 +121,15 @@ export default function DrawerNavigator({ navigation }) {
         <>
           <Drawer.Screen name="Central de Controle" component={CentralControleScreen} />
           <Drawer.Screen name="Cadastro de Usuário" component={CadastroUsuarioScreen} />
+          <Drawer.Screen name="Buscar Notas" component={BuscaNotasScreen} />
         </>
       )}
 
       {usuario?.tipo === 'vendedor' && (
-        <Drawer.Screen name="Painel do Vendedor" component={VendedorScreen} />
+        <>
+          <Drawer.Screen name="Painel do Vendedor" component={VendedorScreen} />
+          <Drawer.Screen name="Buscar Notas" component={BuscaNotasScreen} />
+        </>
       )}
 
       {usuario?.tipo === 'motorista' && (

@@ -98,41 +98,48 @@ app.post('/cadastro', (req, res) => {
 });
 
 app.post('/upload-nota', async (req, res) => {
-  const contentType = req.headers['content-type'];
+  try {
+    const contentType = req.headers['content-type'];
 
-  if (!contentType.includes('application/json')) {
-    return res.status(400).json({ error: 'Tipo de conteúdo inválido. Apenas JSON é aceito.' });
-  }
-
-  const { nota, cliente, cnpj, dataEmissao, total, remetente } = req.body;
-
-  if (!nota || !cliente || !dataEmissao || !total) {
-    return res.status(400).json({ error: 'Dados incompletos para salvar a nota' });
-  }
-
-  const entrega = {
-    nota,
-    cliente_nome: cliente,
-    cliente_cnpj: cnpj || '',
-    data_emissao: dataEmissao,
-    valor_total: total,
-    remetente_nome: remetente || '',
-    vendedor: '',
-    motorista: null,
-    observacao: '',
-    status: 'PENDENTE',
-  };
-
-  db.query('INSERT INTO entregas SET ?', entrega, (err, result) => {
-    if (err) {
-      console.error('❌ Erro ao salvar no banco:', err.message);
-      return res.status(500).json({ error: 'Erro ao salvar no banco' });
+    if (!contentType.includes('application/json')) {
+      return res.status(400).json({ error: 'Tipo de conteúdo inválido. Apenas JSON é aceito.' });
     }
 
-    console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
-    return res.json({ success: true, insertedId: result.insertId });
-  });
+    const { nota, cliente, cnpj, dataEmissao, total, remetente } = req.body;
+
+    if (!nota || !cliente || !dataEmissao || !total) {
+      console.error('[UPLOAD-NOTA] Dados incompletos:', req.body);  // LOG MELHORADO
+      return res.status(400).json({ error: 'Dados incompletos para salvar a nota' });
+    }
+
+    const entrega = {
+      nota,
+      cliente_nome: cliente,
+      cliente_cnpj: cnpj || '',
+      data_emissao: dataEmissao,
+      valor_total: total,
+      remetente_nome: remetente || '',
+      vendedor: '',
+      motorista: null,
+      observacao: '',
+      status: 'PENDENTE',
+    };
+
+    db.query('INSERT INTO entregas SET ?', entrega, (err, result) => {
+      if (err) {
+        console.error('[UPLOAD-NOTA] Erro SQL:', err.message);  // LOG MELHORADO
+        return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
+      }
+
+      console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
+      return res.json({ success: true, insertedId: result.insertId });
+    });
+  } catch (e) {
+    console.error('[UPLOAD-NOTA] Erro inesperado:', e);
+    res.status(500).json({ error: 'Erro inesperado', detalhe: String(e) });
+  }
 });
+
 
 // Upload de canhoto
 app.post('/canhoto/:id', autenticar, upload.single('file'), (req, res) => {
@@ -247,54 +254,35 @@ app.get('/usuarios', autenticar, (req, res) => {
 
 app.get('/entregas', autenticar, (req, res) => {
   const { status, motorista, dataInicio, dataFim, semMotorista, busca } = req.query;
-
   let sql = `
     SELECT e.*, u.nome AS nome_motorista
     FROM entregas e
     LEFT JOIN usuarios u ON e.motorista = u.id
     WHERE 1 = 1
   `;
-
   const params = [];
+  if (status) { sql += " AND e.status = ?"; params.push(status); }
+  if (motorista) { sql += " AND e.motorista = ?"; params.push(motorista); }
+  if (semMotorista === 'true') { sql += " AND e.motorista IS NULL"; }
+  if (dataInicio && dataFim) { sql += " AND DATE(e.data_emissao) BETWEEN ? AND ?"; params.push(dataInicio, dataFim); }
 
-  // Filtro por status (PENDENTE ou ENTREGUE)
-  if (status) {
-    sql += " AND e.status = ?";
-    params.push(status);
-  }
-
-  // Filtro por motorista
-  if (motorista) {
-    sql += " AND e.motorista = ?";
-    params.push(motorista);
-  }
-
-  // Filtro para mostrar apenas entregas sem motorista
-  if (semMotorista === 'true') {
-    sql += " AND e.motorista IS NULL";
-  }
-
-  // Filtro por data de emissão correta
-  if (dataInicio && dataFim) {
-    sql += " AND DATE(e.data_emissao) BETWEEN ? AND ?";
-    params.push(dataInicio, dataFim);
-  }
-
-  // Filtro por nome do cliente ou nota (com limpeza de texto)
-  if (busca && busca.length >= 3) {
-    sql += `
-      AND (
-        LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(cliente_nome, '.', ''), ',', ''), '-', ''), ' ', ''), 'Á', 'A'), 'á', 'a')) 
-        LIKE ?
-        OR e.nota LIKE ?
-      )
-    `;
-    const textoLimpo = `%${busca.toLowerCase().replace(/\s|\.|\,|\-/g, '')}%`;
-    params.push(textoLimpo, `%${busca}%`);
+  if (busca && busca.length >= 1) {
+    if (/^\d+$/.test(busca)) {
+      const buscaInt = String(Number(busca));
+      if (buscaInt.length === 11 || buscaInt.length === 14) {
+        sql += " AND e.cliente_cnpj = ?";
+        params.push(buscaInt);
+      } else {
+        sql += " AND CAST(e.nota AS UNSIGNED) = ?";
+        params.push(Number(busca));
+      }
+    } else {
+      sql += " AND LOWER(e.cliente_nome) LIKE ?";
+      params.push(`%${busca.toLowerCase()}%`);
+    }
   }
 
   sql += " ORDER BY e.data_emissao DESC, e.id DESC";
-
   db.query(sql, params, (err, resultados) => {
     if (err) {
       console.error('❌ Erro ao buscar entregas:', err.message);
