@@ -1,5 +1,5 @@
-// 📦 CentralControleScreen.tsx — ADMIN COMPLETA E MELHORADA
-import React, { useState, useEffect } from 'react';
+// 📦 CentralControleScreen.tsx — VERSÃO PREMIUM
+import React, { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ProtectedRoute from './ProtectedRoute';
 import { API } from './config';
@@ -16,106 +16,229 @@ import {
   TextInput, 
   Modal, 
   Button, 
-  Image, 
-  Alert
+  Image,
+  Alert,
+  RefreshControl,
+  Animated,
+  Easing
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
+import { Feather, MaterialIcons, FontAwesome, Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+
+// 🎨 Paleta de cores premium
+const COLORS = {
+  primary: '#4361ee',
+  secondary: '#3f37c9',
+  accent: '#4895ef',
+  success: '#4cc9f0',
+  danger: '#f72585',
+  warning: '#f8961e',
+  light: '#f8f9fa',
+  dark: '#212529',
+  background: '#f0f2f5',
+  card: '#ffffff',
+  text: '#343a40',
+  border: '#dee2e6'
+};
 
 export default function CentralControleScreen() {
   const hoje = new Date();
   const [inicio, setInicio] = useState(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
   const [fim, setFim] = useState(hoje);
-  const [mostrarInicio, setMostrarInicio] = useState(false);
-  const [mostrarFim, setMostrarFim] = useState(false);
-  const [entregas, setEntregas] = useState([]);
+  const [mostrarCalendario, setMostrarCalendario] = useState(false);
+  const [tipoCalendario, setTipoCalendario] = useState<'inicio' | 'fim'>('inicio');
+  const [entregas, setEntregas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
-  const [motoristas, setMotoristas] = useState([]);
+  const [motoristas, setMotoristas] = useState<any[]>([]);
   const [motoristaSelecionado, setMotoristaSelecionado] = useState('');
-  const [entregaSelecionada, setEntregaSelecionada] = useState(null);
+  const [entregaSelecionada, setEntregaSelecionada] = useState<any>(null);
   const [usuarioTipo, setUsuarioTipo] = useState('');
   const [modalImagemVisivel, setModalImagemVisivel] = useState(false);
   const [imagemSelecionada, setImagemSelecionada] = useState('');
-  
   const [motoristaAtribuicaoId, setMotoristaAtribuicaoId] = useState('');
   const [modalAtribuirVisivel, setModalAtribuirVisivel] = useState(false);
   const [atribuindo, setAtribuindo] = useState(false);
-
-  // ✅ Formatar data no formato DD/MM/AAAA
-  const formatar = (data) => {
-    const dia = String(data.getDate()).padStart(2, '0');
-    const mes = String(data.getMonth() + 1).padStart(2, '0');
-    const ano = data.getFullYear();
-    return `${dia}/${mes}/${ano}`;
+  const [refreshing, setRefreshing] = useState(false);
+  const [statusSelecionado, setStatusSelecionado] = useState<string>('TODOS');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const rotateAnim = useState(new Animated.Value(0))[0];
+  
+  // Animação para ícone de filtro
+  const toggleFiltros = () => {
+    setFiltrosAbertos(!filtrosAbertos);
+    Animated.timing(rotateAnim, {
+      toValue: filtrosAbertos ? 0 : 1,
+      duration: 300,
+      easing: Easing.linear,
+      useNativeDriver: true
+    }).start();
   };
 
-  const buscarEntregas = async () => {
-    setCarregando(true);
+  const rotate = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg']
+  });
+
+  // ✅ Formatar data no formato DD/MM/AAAA
+  const formatarData = (data: Date) => {
+    return data.toLocaleDateString('pt-BR');
+  };
+
+  // 🔄 Função para buscar entregas com tratamento de cache
+  const buscarEntregas = useCallback(async () => {
+  setCarregando(true);
+
+  const formatarParaAPI = (data: Date) => {
+    const ano = data.getFullYear();
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const dia = String(data.getDate()).padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+  };
+
+  let query = `?dataInicio=${formatarParaAPI(inicio)}&dataFim=${formatarParaAPI(fim)}`;
+  if (motoristaSelecionado) query += `&motorista=${motoristaSelecionado}`;
+  if (busca.length >= 2) query += `&busca=${encodeURIComponent(busca)}`;
+// NÃO coloca statusSelecionado na query! Pronto!
+
+  const usuario = await AsyncStorage.getItem('usuario');
+  const token = JSON.parse(usuario || '{}').token;
+
+
+
+
+  try {
+    const res = await fetch(`${API.ENTREGAS}${query}`, { headers: { Authorization: token } });
+    const data = await res.json();
+    setEntregas(Array.isArray(data) ? data : []);
+  } catch {
+    Alert.alert('Erro', 'Falha ao carregar entregas');
+  } finally {
+    setCarregando(false);
+    setRefreshing(false);
+  }
+}, [inicio, fim, motoristaSelecionado, statusSelecionado, busca]);
+
+
+  // 🔄 Atualizar puxando a tela para baixo
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    buscarEntregas();
+  }, [buscarEntregas]);
+
+  // 📊 Gerar relatório PDF com gráficos
+  const gerarPDF = async () => {
+    // Calcular estatísticas
+    const totalEntregas = entregas.length;
+    const entregues = entregas.filter(e => e.status === 'CONCLUIDA').length;
+    const pendentes = totalEntregas - entregues;
     
-    // ✅ Converter datas para formato americano para a API
-    const formatarParaAPI = (data) => {
-      const ano = data.getFullYear();
-      const mes = String(data.getMonth() + 1).padStart(2, '0');
-      const dia = String(data.getDate()).padStart(2, '0');
-      return `${ano}-${mes}-${dia}`;
-    };
-    
-    const query = `?dataInicio=${formatarParaAPI(inicio)}&dataFim=${formatarParaAPI(fim)}${motoristaSelecionado ? `&motorista=${motoristaSelecionado}` : ''}${busca.length >= 3 ? `&busca=${encodeURIComponent(busca)}` : ''}`;
-    
-    const usuario = await AsyncStorage.getItem('usuario');
-    const token = JSON.parse(usuario || '{}').token;
-    
+    const html = `
+      <html>
+        <head>
+          <style>
+            body { font-family: sans-serif; }
+            h1 { color: ${COLORS.primary}; text-align: center; }
+            .stats { display: flex; justify-content: space-around; margin: 20px 0; }
+            .stat-card { background: #f0f8ff; padding: 15px; border-radius: 10px; text-align: center; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { background-color: ${COLORS.primary}; color: white; padding: 10px; }
+            tr:nth-child(even) { background-color: #f2f2f2; }
+            td { padding: 8px; border-bottom: 1px solid #ddd; }
+            .chart-container { display: flex; margin-top: 30px; height: 200px; align-items: flex-end; }
+            .chart-bar { flex: 1; background: ${COLORS.accent}; margin: 0 5px; position: relative; }
+            .chart-label { position: absolute; bottom: -25px; width: 100%; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <h1>Relatório de Entregas</h1>
+          
+          <div class="stats">
+            <div class="stat-card">
+              <h3>Total</h3>
+              <p>${totalEntregas}</p>
+            </div>
+            <div class="stat-card">
+              <h3>Entregues</h3>
+              <p>${entregues}</p>
+            </div>
+            <div class="stat-card">
+              <h3>Pendentes</h3>
+              <p>${pendentes}</p>
+            </div>
+          </div>
+          
+          <div class="chart-container">
+            <div style="height: ${(entregues / totalEntregas) * 100 || 0}%;" class="chart-bar">
+              <div class="chart-label">Entregues</div>
+            </div>
+            <div style="height: ${(pendentes / totalEntregas) * 100 || 0}%;" class="chart-bar">
+              <div class="chart-label">Pendentes</div>
+            </div>
+          </div>
+          
+          <table>
+            <tr>
+              <th>Cliente</th>
+              <th>Nota</th>
+              <th>Data</th>
+              <th>Valor</th>
+              <th>Status</th>
+              <th>Motorista</th>
+            </tr>
+            ${entregas.map(e => `
+              <tr>
+                <td>${e.cliente_nome}</td>
+                <td>${e.nota}</td>
+                <td>${new Date(e.data_emissao).toLocaleDateString('pt-BR')}</td>
+                <td>R$ ${parseFloat(e.valor_total).toFixed(2)}</td>
+                <td>${e.status}</td>
+                <td>${e.nome_motorista || '---'}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </body>
+      </html>
+    `;
+
     try {
-      const res = await fetch(`${API.ENTREGAS}${query}`, { headers: { Authorization: token } });
-      const data = await res.json();
-      setEntregas(Array.isArray(data) ? data : []);
+      const file = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(file.uri);
     } catch (error) {
-      Alert.alert('Erro', 'Falha ao carregar entregas');
-    } finally {
-      setCarregando(false);
+      Alert.alert('Erro', 'Falha ao gerar o PDF');
     }
   };
 
-  const gerarPDF = async () => {
-  const html = `
-    <html><body>
-    <h1>Relatório de Entregas</h1>
-    <table border="1" style="width:100%;border-collapse:collapse">
-      <tr><th>Cliente</th><th>Nota</th><th>Data</th><th>Valor</th><th>Status</th><th>Motorista</th></tr>
-      ${entregas.map(e => `
-        <tr>
-          <td>${e.cliente_nome}</td>
-          <td>${e.nota}</td>
-          <td>${new Date(e.data_emissao).toLocaleDateString('pt-BR')}</td>
-          <td>R$ ${parseFloat(e.valor_total).toFixed(2)}</td>
-          <td>${e.status}</td>
-          <td>${e.nome_motorista || '---'}</td>
-        </tr>
-      `).join('')}
-    </table>
-    </body></html>
-  `;
-
-  const file = await Print.printToFileAsync({ html });
-  await Sharing.shareAsync(file.uri);
-};
-
+  // 👥 Carregar motoristas com cache
   const carregarMotoristas = async () => {
     const usuario = await AsyncStorage.getItem('usuario');
     const parsed = JSON.parse(usuario || '{}');
     setUsuarioTipo(parsed.tipo);
     const token = parsed.token;
+    
     try {
+      const cacheKey = 'motoristas_lista';
+      const cachedData = await AsyncStorage.getItem(cacheKey);
+      
+      if (cachedData) {
+        setMotoristas(JSON.parse(cachedData));
+      }
+      
       const res = await fetch(API.USUARIOS, { headers: { Authorization: token } });
       const lista = await res.json();
-      setMotoristas(lista.filter((m) => m.tipo === 'motorista'));
+      const motoristasFiltrados = lista.filter((m: any) => m.tipo === 'motorista');
+      
+      setMotoristas(motoristasFiltrados);
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(motoristasFiltrados)); // 1 dia
     } catch (error) {
       console.error('Erro ao carregar motoristas:', error);
     }
   };
 
-  const reatribuir = async () => {
+  // 🚚 Reatribuir motorista com feedback visual
+  const reatribuirMotorista = async () => {
     if (atribuindo || !motoristaAtribuicaoId || !entregaSelecionada) return;
     
     setAtribuindo(true);
@@ -138,7 +261,8 @@ export default function CentralControleScreen() {
       const data = await response.json();
       
       if (response.ok) {
-        setEntregas(entregas.map(entrega => 
+        // Atualizar estado com imutabilidade
+        setEntregas(prev => prev.map(entrega => 
           entrega.id === entregaSelecionada.id 
             ? { 
                 ...entrega, 
@@ -149,7 +273,7 @@ export default function CentralControleScreen() {
             : entrega
         ));
         
-        Alert.alert('✅ Sucesso', `Entrega reatribuída com sucesso`);
+        Alert.alert('✅ Sucesso', `Entrega reatribuída para ${motoristas.find(m => m.id == motoristaAtribuicaoId)?.nome}`);
       } else {
         Alert.alert('❌ Erro', data.error || 'Falha na reatribuição');
       }
@@ -163,7 +287,8 @@ export default function CentralControleScreen() {
     }
   };
 
-  const marcarComoEntregue = async (id) => {
+  // ✔️ Marcar entrega como concluída
+  const marcarComoEntregue = async (id: number) => {
     const usuario = await AsyncStorage.getItem('usuario');
     const token = JSON.parse(usuario || '{}').token;
 
@@ -172,257 +297,478 @@ export default function CentralControleScreen() {
         method: 'PUT',
         headers: { Authorization: token },
       });
-      buscarEntregas();
+      
+      // Atualização otimista
+      setEntregas(prev => prev.map(e => 
+        e.id === id ? { ...e, status: 'CONCLUIDA' } : e
+      ));
     } catch (error) {
       Alert.alert('Erro', 'Falha ao atualizar entrega');
     }
   }; 
 
+  // 📸 Reenviar canhoto com pré-visualização
   const reenviarCanhoto = async (entregaId: number) => {
     try {
       const permissao = await ImagePicker.requestCameraPermissionsAsync();
       if (permissao.status !== 'granted') {
-        alert('Permissão da câmera negada');
+        Alert.alert('Permissão necessária', 'Precisamos acessar sua câmera para tirar fotos do canhoto');
         return;
       }
 
-      const imagem = await ImagePicker.launchCameraAsync({ quality: 0.6 });
-      if (imagem.canceled) {
-        alert('Envio cancelado');
-        return;
-      }
-
-      const usuario = await AsyncStorage.getItem('usuario');
-      const token = JSON.parse(usuario || '{}').token;
-
-      const formData = new FormData();
-      formData.append('file', {
-        uri: imagem.assets[0].uri,
-        name: `canhoto_${entregaId}.jpg`,
-        type: 'image/jpeg',
-      } as any);
-
-      const res = await fetch(`${API.CANHOTO}/${entregaId}`, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          Authorization: token,
-        },
+      const imagem = await ImagePicker.launchCameraAsync({
+        quality: 0.8,
+        allowsEditing: true,
+        aspect: [4, 3],
       });
+      
+      if (imagem.canceled) return;
 
-      const resposta = await res.json();
-      console.log('📥 Resposta do servidor:', resposta);
+      setImagemSelecionada(imagem.assets[0].uri);
+      setModalImagemVisivel(true);
+      
+      // Perguntar se deseja enviar após visualização
+      Alert.alert(
+        'Confirmar envio',
+        'Deseja enviar esta foto como canhoto?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { 
+            text: 'Enviar', 
+            onPress: async () => {
+              const usuario = await AsyncStorage.getItem('usuario');
+              const token = JSON.parse(usuario || '{}').token;
 
-      if (resposta.success) {
-        alert('✅ Canhoto enviado com sucesso');
-        buscarEntregas();
-      } else {
-        alert(`⚠️ Erro: ${resposta.error || 'Erro desconhecido'}`);
-      }
+              const formData = new FormData();
+              formData.append('file', {
+                uri: imagem.assets[0].uri,
+                name: `canhoto_${entregaId}.jpg`,
+                type: 'image/jpeg',
+              } as any);
+
+              const res = await fetch(`${API.CANHOTO}/${entregaId}`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                  Authorization: token,
+                  'Content-Type': 'multipart/form-data',
+                },
+              });
+
+              if (res.ok) {
+                Alert.alert('✅ Sucesso', 'Canhoto enviado com sucesso');
+                buscarEntregas();
+              } else {
+                const errorData = await res.json();
+                Alert.alert('⚠️ Erro', errorData.error || 'Falha no envio do canhoto');
+              }
+            }
+          }
+        ]
+      );
     } catch (err) {
       console.error('❌ Erro ao reenviar canhoto:', err);
-      alert('Erro ao enviar canhoto');
+      Alert.alert('Erro', 'Falha ao processar a imagem');
     }
   };
 
-  const renderEntrega = (e) => (
-    <View key={e.id} style={[
+  // 🎨 Componente de card de entrega
+  const EntregaCard = ({ entrega }: { entrega: any }) => (
+    
+    <View style={[
       styles.card,
-      e.status === 'CONCLUIDA' ? styles.cardConcluida : null,
-      e.status === 'PENDENTE' ? styles.cardPendente : null
+      entrega.status === 'CONCLUIDA' && styles.cardConcluida,
+      entrega.status === 'PENDENTE' && styles.cardPendente,
+      entrega.status === 'CANCELADA' && styles.cardCancelada
     ]}>
-      {/* ✅ Cliente como primeiro campo */}
-      <Text style={styles.label}>Cliente: {e.cliente_nome}</Text>
-      <Text>Nota: {e.nota}</Text>
-      <Text>Data emissão: {new Date(e.data_emissao).toLocaleDateString('pt-BR')}</Text>
-      <Text>Valor: R$ {parseFloat(e.valor_total).toFixed(2)}</Text>
-      <Text>Status: {e.status}</Text>
-      <Text>Motorista: {e.nome_motorista || '🚫 Nenhum'}</Text>
-
-      {e.canhoto_path ? (
-        <TouchableOpacity onPress={() => {
-          const filename = e.canhoto_path.split('/').pop();
-          const url = `${API.BASE}/uploads/${filename}`;
-          console.log('Acessando canhoto:', url);
-          setImagemSelecionada(url);
-          setModalImagemVisivel(true);
-        }}>
-          <Text style={{ color: 'green' }}>🧾 Ver Canhoto</Text>
+      <View style={styles.cardHeader}>
+        <Text style={styles.cardTitle}>{entrega.cliente_nome}</Text>
+        <View style={[
+          styles.statusBadge,
+          entrega.status === 'CONCLUIDA' && styles.badgeSuccess,
+          entrega.status === 'PENDENTE' && styles.badgeWarning,
+          entrega.status === 'CANCELADA' && styles.badgeDanger
+        ]}>
+          <Text style={styles.badgeText}>{entrega.status}</Text>
+        </View>
+      </View>
+      
+      
+      <View style={styles.cardBody}>
+        <View style={styles.infoRow}>
+          <Feather name="file-text" size={16} color={COLORS.text} />
+          <Text style={styles.infoText}>Nota: {entrega.nota}</Text>
+        </View>
+        
+        <View style={styles.infoRow}>
+          <Feather name="calendar" size={16} color={COLORS.text} />
+          <Text style={styles.infoText}>
+            {new Date(entrega.data_emissao).toLocaleDateString('pt-BR')}
+          </Text>
+        </View>
+        
+        <View style={styles.infoRow}>
+          <Feather name="dollar-sign" size={16} color={COLORS.text} />
+          <Text style={styles.infoText}>
+            R$ {parseFloat(entrega.valor_total).toFixed(2)}
+          </Text>
+        </View>
+        
+        <View style={styles.infoRow}>
+          <Ionicons name="person" size={16} color={COLORS.text} />
+          <Text style={styles.infoText}>
+            {entrega.nome_motorista || 'Não atribuído'}
+          </Text>
+        </View>
+      </View>
+      
+      {entrega.canhoto_path ? (
+        <TouchableOpacity 
+          style={styles.canhotoButton}
+          onPress={() => {
+            const url = `${API.BASE}/uploads/${entrega.canhoto_path.split('/').pop()}`;
+            setImagemSelecionada(url);
+            setModalImagemVisivel(true);
+          }}
+        >
+          <Feather name="file" size={16} color={COLORS.primary} />
+          <Text style={styles.canhotoText}>Ver Canhoto</Text>
         </TouchableOpacity>
       ) : (
-        <Text style={{ color: 'orange' }}>⚠️ Canhoto não disponível</Text>
+        <View style={styles.canhotoMissing}>
+          <Feather name="alert-circle" size={16} color={COLORS.warning} />
+          <Text style={styles.canhotoMissingText}>Canhoto não disponível</Text>
+        </View>
       )}
-
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-        <TouchableOpacity onPress={() => { 
-          setEntregaSelecionada(e); 
-          setModalAtribuirVisivel(true); 
-        }}>
-          <Text style={styles.link}>🚚 Atribuir motorista</Text>
+      
+      <View style={styles.cardFooter}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => { 
+            setEntregaSelecionada(entrega); 
+            setModalAtribuirVisivel(true); 
+          }}
+        >
+          <Ionicons name="person-add" size={16} color={COLORS.primary} />
+          <Text style={styles.actionText}>Atribuir</Text>
         </TouchableOpacity>
 
         {usuarioTipo === 'admin' && (
-          <TouchableOpacity onPress={() => reenviarCanhoto(e.id)}>
-            <Text style={styles.link}>📷 Novo Canhoto</Text>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => reenviarCanhoto(entrega.id)}
+          >
+            <Ionicons name="camera" size={16} color={COLORS.accent} />
+            <Text style={styles.actionText}>Canhoto</Text>
           </TouchableOpacity>
         )}
 
-        {e.status === 'PENDENTE' && (
-          <TouchableOpacity onPress={() => marcarComoEntregue(e.id)}>
-            <Text style={{ color: 'green' }}>✔️ Marcar como Entregue</Text>
+        {entrega.status === 'PENDENTE' && (
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => marcarComoEntregue(entrega.id)}
+          >
+            <Feather name="check-circle" size={16} color={COLORS.success} />
+            <Text style={styles.actionText}>Concluir</Text>
           </TouchableOpacity>
         )}
       </View>
     </View>
   );
 
+  // Efeitos iniciais
   useEffect(() => {
     buscarEntregas();
     carregarMotoristas();
-  }, [inicio, fim, motoristaSelecionado, busca]);
+  }, []);
+
+  // 🔎 Filtra as entregas pelo status selecionado (no frontend)
+const entregasFiltradas = statusSelecionado === 'TODOS'
+  ? entregas
+  : entregas.filter(e => {
+      // Corrige nome do status "ENTREGUE" para "CONCLUIDA" se seu backend usa um, o frontend outro
+      if (statusSelecionado === 'ENTREGUE') return e.status === 'CONCLUIDA' || e.status === 'ENTREGUE';
+      return e.status === statusSelecionado;
+    });
+
 
   return (
     <ProtectedRoute permitido={['admin']}>
-      <View style={styles.filtrosContainer}>
-        <View style={styles.filtroLinha}>
-          <TouchableOpacity 
-            onPress={() => setMostrarInicio(true)}
-            style={styles.filtroBotaoContainer}
-          >
-            <Text style={styles.filtroBotao}>📅 Início: {formatar(inicio)}</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            onPress={() => setMostrarFim(true)}
-            style={styles.filtroBotaoContainer}
-          >
-            <Text style={styles.filtroBotao}>📅 Fim: {formatar(fim)}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.filtroLinha}>
-          <TextInput
-            style={styles.inputBusca}
-            placeholder="🔍 Buscar cliente (mín 3 letras)"
-            value={busca}
-            onChangeText={setBusca}
-          />
-          
-          <Picker
-            selectedValue={motoristaSelecionado}
-            onValueChange={setMotoristaSelecionado}
-            style={styles.picker}
-          >
-            <Picker.Item label="Todos motoristas" value="" />
-            {motoristas.map((m) => (
-              <Picker.Item 
-                key={m.id} 
-                label={m.nome} 
-                value={m.id} 
-              />
-            ))}
-          </Picker>
-        </View>
+      <StatusBar style="dark" />
+      
+      {/* Header com título e botão de PDF */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Controle de Entregas</Text>
+        <TouchableOpacity onPress={gerarPDF} style={styles.pdfButton}>
+          <MaterialIcons name="picture-as-pdf" size={24} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.botaoPDF} onPress={gerarPDF}>
-        <Text style={styles.textoBotaoPDF}>📄 Exportar PDF</Text>
-      </TouchableOpacity>
+      {/* Barra de busca */}
+            <View style={styles.searchContainer}>
+        <Feather name="search" size={20} color={COLORS.text} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Buscar cliente, nota, CNPJ..."
+          placeholderTextColor="#999"
+          value={busca}
+          onChangeText={setBusca}
+          returnKeyType="search"
+        />
+        <TouchableOpacity onPress={() => setBusca('')}>
+          <Feather name="x" size={20} color={COLORS.primary} />
+        </TouchableOpacity>
+      </View>
 
-      {mostrarInicio && (
-        <DateTimePicker value={inicio} mode="date" display="default" onChange={(_, d) => { setMostrarInicio(false); if (d) setInicio(d); }} />
-      )}
-      {mostrarFim && (
-        <DateTimePicker value={fim} mode="date" display="default" onChange={(_, d) => { setMostrarFim(false); if (d) setFim(d); }} />
-      )}
+      {/* Painel de filtros expansível */}
+      <View style={styles.filtersPanel}>
+  <View style={styles.filterRow}>
+    <TouchableOpacity 
+      style={styles.dateButton}
+      onPress={() => { setTipoCalendario('inicio'); setMostrarCalendario(true); }}>
+      <Feather name="calendar" size={18} color={COLORS.primary} />
+      <Text style={styles.dateButtonText}>Início: {formatarData(inicio)}</Text>
+    </TouchableOpacity>
+    <Text style={{marginHorizontal:6}}>-</Text>
+    <TouchableOpacity 
+      style={styles.dateButton}
+      onPress={() => { setTipoCalendario('fim'); setMostrarCalendario(true); }}>
+      <Feather name="calendar" size={18} color={COLORS.primary} />
+      <Text style={styles.dateButtonText}>Fim: {formatarData(fim)}</Text>
+    </TouchableOpacity>
+  </View>
+  
+  <View style={styles.filterRow}>
+    <View style={styles.pickerContainer}>
+      <Picker
+        selectedValue={motoristaSelecionado}
+        onValueChange={setMotoristaSelecionado}
+        dropdownIconColor={COLORS.primary}
+        style={styles.picker}
+      >
+        <Picker.Item label="Todos motoristas" value="" />
+        {motoristas.map((m) => (
+          <Picker.Item key={m.id} label={m.nome} value={m.id} />
+        ))}
+      </Picker>
+    </View>
+    <View style={styles.pickerContainer}>
+      <Picker
+        selectedValue={statusSelecionado}
+        onValueChange={setStatusSelecionado}
+        dropdownIconColor={COLORS.primary}
+        style={styles.picker}
+      >
+        <Picker.Item label="Todos status" value="TODOS" />
+        <Picker.Item label="Pendentes" value="PENDENTE" />
+        <Picker.Item label="Concluídas" value="ENTREGUE" />
+        <Picker.Item label="Canceladas" value="CANCELADA" />
+      </Picker>
+    </View>
+  </View>
+</View>
 
-      <ScrollView contentContainerStyle={styles.lista}>
-  {carregando ? (
-    <ActivityIndicator size="large" />
-  ) : (
-    <>
-      {entregas.filter(e => new Date(e.data_lancamento).toDateString() === new Date().toDateString()).length > 0 && (
-        <>
-          <Text style={styles.subtitulo}>📆 Entregas de Hoje</Text>
-          {entregas
-            .filter(e => new Date(e.data_lancamento).toDateString() === new Date().toDateString())
-            .map((e) => renderEntrega(e))}
-        </>
-      )}
+     {mostrarCalendario && (
+  <DateTimePicker
+    value={tipoCalendario === 'inicio' ? inicio : fim}
+    mode="date"
+    display="calendar" // <<--- força o calendário moderno cheio
+    onChange={(_, data) => {
+      setMostrarCalendario(false);
+      if (data) {
+        tipoCalendario === 'inicio' ? setInicio(data) : setFim(data);
+        buscarEntregas();
+      }
+    }}
+    minimumDate={new Date(2023, 0, 1)}
+    maximumDate={new Date(2050, 11, 31)}
+  />
+)}
 
-      {entregas.filter(e => new Date(e.data_lancamento).toDateString() !== new Date().toDateString()).length > 0 && (
-        <>
-          <Text style={styles.subtitulo}>📂 Outras Entregas</Text>
-          {entregas
-            .filter(e => new Date(e.data_lancamento).toDateString() !== new Date().toDateString())
-            .map((e) => renderEntrega(e))}
-        </>
-      )}
-    </>
-  )}
-</ScrollView>
 
-      {/* MODAL DE VISUALIZAÇÃO DE IMAGEM */}
-      <Modal visible={modalImagemVisivel} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
+
+      {/* Lista de entregas com refresh */}
+      <ScrollView
+        contentContainerStyle={styles.listContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.primary]}
+            tintColor={COLORS.primary}
+          />
+        }
+      >
+          {carregando ? (
+  <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
+) : entregasFiltradas.length === 0 ? (
+  <View style={styles.emptyState}>
+    <Feather name="package" size={64} color={COLORS.border} />
+    <Text style={styles.emptyText}>Nenhuma entrega encontrada</Text>
+    <Text style={styles.emptySubtext}>Ajuste os filtros ou tente novamente mais tarde</Text>
+  </View>
+) : statusSelecionado === 'TODOS' ? (
+  <>
+    {/* Agrupa por status usando entregasFiltradas */}
+    {entregasFiltradas.filter(e => e.status === 'PENDENTE').length > 0 && (
+      <>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🚚 Entregas Pendentes</Text>
+          <View style={styles.sectionBadge}>
+            <Text style={styles.sectionBadgeText}>
+              {entregasFiltradas.filter(e => e.status === 'PENDENTE').length}
+            </Text>
+          </View>
+        </View>
+        {entregasFiltradas
+          .filter(e => e.status === 'PENDENTE')
+          .map((e) => (
+            <EntregaCard key={e.id} entrega={e} />
+          ))}
+      </>
+    )}
+
+    {entregasFiltradas.filter(e => e.status === 'CONCLUIDA' || e.status === 'ENTREGUE').length > 0 && (
+      <>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>✔️ Entregas Concluídas</Text>
+          <View style={styles.sectionBadge}>
+            <Text style={styles.sectionBadgeText}>
+              {entregasFiltradas.filter(e => e.status === 'CONCLUIDA' || e.status === 'ENTREGUE').length}
+            </Text>
+          </View>
+        </View>
+        {entregasFiltradas
+          .filter(e => e.status === 'CONCLUIDA' || e.status === 'ENTREGUE')
+          .map((e) => (
+            <EntregaCard key={e.id} entrega={e} />
+          ))}
+      </>
+    )}
+
+    {entregasFiltradas.filter(e => e.status === 'CANCELADA').length > 0 && (
+      <>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>❌ Canceladas</Text>
+          <View style={styles.sectionBadge}>
+            <Text style={styles.sectionBadgeText}>
+              {entregasFiltradas.filter(e => e.status === 'CANCELADA').length}
+            </Text>
+          </View>
+        </View>
+        {entregasFiltradas
+          .filter(e => e.status === 'CANCELADA')
+          .map((e) => (
+            <EntregaCard key={e.id} entrega={e} />
+          ))}
+      </>
+    )}
+  </>
+) : (
+  // Se filtro for só de um status, mostra tudo junto
+  entregasFiltradas.map((e) => <EntregaCard key={e.id} entrega={e} />)
+)}
+
+
+      </ScrollView>
+
+      {/* Modal de visualização de imagem */}
+      <Modal 
+        visible={modalImagemVisivel} 
+        transparent 
+        animationType="fade"
+        onRequestClose={() => setModalImagemVisivel(false)}
+      >
+        <View style={styles.imageModal}>
           <TouchableOpacity
-            style={styles.botaoFecharModal}
+            style={styles.closeButton}
             onPress={() => setModalImagemVisivel(false)}
           >
-            <Text style={styles.textoFecharModal}>✖ Fechar</Text>
+            <Feather name="x" size={28} color="#fff" />
           </TouchableOpacity>
-
+          
           <Image
             source={{ uri: imagemSelecionada }}
-            style={styles.imagemModal}
-            onError={() => {
-              alert('❌ Erro ao carregar imagem. Verifique se o canhoto é uma imagem válida.');
-            }}
+            style={styles.fullImage}
+            resizeMode="contain"
           />
+          
+          <TouchableOpacity
+            style={styles.downloadButton}
+            onPress={() => Sharing.shareAsync(imagemSelecionada)}
+          >
+            <Feather name="download" size={20} color="#fff" />
+            <Text style={styles.downloadText}>Salvar Imagem</Text>
+          </TouchableOpacity>
         </View>
       </Modal>
 
-      {/* MODAL PARA ATRIBUIR MOTORISTA */}
-      <Modal visible={modalAtribuirVisivel} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
+      {/* Modal para atribuir motorista */}
+      <Modal 
+        visible={modalAtribuirVisivel} 
+        transparent 
+        animationType="slide"
+        onRequestClose={() => setModalAtribuirVisivel(false)}
+      >
+        <View style={styles.assignModal}>
+          <View style={styles.assignModalContent}>
             <Text style={styles.modalTitle}>Atribuir Motorista</Text>
-            <Text style={styles.modalInfo}>Cliente: {entregaSelecionada?.cliente_nome}</Text>
-            <Text style={styles.modalInfo}>Nota: {entregaSelecionada?.nota}</Text>
             
-            {atribuindo ? (
-              <ActivityIndicator size="large" style={styles.carregandoModal} />
-            ) : (
-              <>
-                <Picker
-                  selectedValue={motoristaAtribuicaoId}
-                  onValueChange={setMotoristaAtribuicaoId}
-                  style={styles.pickerModal}
-                >
-                  <Picker.Item label="Selecione um motorista..." value="" />
-                  {motoristas.map((m) => (
-                    <Picker.Item 
-                      key={m.id} 
-                      label={m.nome} 
-                      value={m.id} 
-                    />
-                  ))}
-                </Picker>
+            <View style={styles.assignmentInfo}>
+              <Text style={styles.infoLabel}>Cliente:</Text>
+              <Text style={styles.infoValue}>{entregaSelecionada?.cliente_nome}</Text>
+            </View>
+            
+            <View style={styles.assignmentInfo}>
+              <Text style={styles.infoLabel}>Nota:</Text>
+              <Text style={styles.infoValue}>{entregaSelecionada?.nota}</Text>
+            </View>
+            
+            <View style={styles.assignmentInfo}>
+              <Text style={styles.infoLabel}>Valor:</Text>
+              <Text style={styles.infoValue}>
+                R$ {parseFloat(entregaSelecionada?.valor_total || 0).toFixed(2)}
+              </Text>
+            </View>
 
-                <View style={styles.modalButtons}>
-                  <Button 
-                    title="Cancelar" 
-                    onPress={() => setModalAtribuirVisivel(false)} 
-                    color="#999" 
+            <View style={styles.pickerModalContainer}>
+              <Picker
+                selectedValue={motoristaAtribuicaoId}
+                onValueChange={setMotoristaAtribuicaoId}
+                dropdownIconColor={COLORS.primary}
+                style={styles.pickerModal}
+              >
+                <Picker.Item label="Selecione um motorista..." value="" />
+                {motoristas.map((m) => (
+                  <Picker.Item 
+                    key={m.id} 
+                    label={m.nome} 
+                    value={m.id} 
                   />
-                  <Button 
-                    title="Atribuir" 
-                    onPress={reatribuir} 
-                    disabled={!motoristaAtribuicaoId || atribuindo}
-                  />
-                </View>
-              </>
-            )}
+                ))}
+              </Picker>
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setModalAtribuirVisivel(false)}
+              >
+                <Text style={styles.buttonText}>Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.assignButton]}
+                onPress={reatribuirMotorista}
+                disabled={!motoristaAtribuicaoId || atribuindo}
+              >
+                {atribuindo ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={[styles.buttonText, styles.assignButtonText]}>Atribuir</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -431,136 +777,339 @@ export default function CentralControleScreen() {
 }
 
 const styles = StyleSheet.create({
-  filtrosContainer: { 
-    padding: 10, 
-    backgroundColor: '#eee' 
+  // 🎨 Estilos premium
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
   },
-  filtroLinha: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: COLORS.primary,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    elevation: 4,
   },
-  filtroBotaoContainer: {
-    backgroundColor: '#fff',
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  pdfButton: {
+    backgroundColor: COLORS.danger,
     padding: 10,
-    borderRadius: 6,
-    flex: 1,
-    marginHorizontal: 5,
+    borderRadius: 50,
   },
-  filtroBotao: { 
-    fontSize: 16, 
-    color: '#333',
-    textAlign: 'center',
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    margin: 16,
+    borderRadius: 12,
+    elevation: 2,
   },
-  inputBusca: { 
-    backgroundColor: '#fff', 
-    padding: 10, 
-    borderRadius: 6, 
-    flex: 1,
+  searchIcon: {
     marginRight: 10,
   },
-  picker: {
-    backgroundColor: '#fff',
+  searchInput: {
     flex: 1,
+    fontSize: 16,
+    color: COLORS.text,
+  },
+  filterButton: {
+    padding: 5,
+  },
+  filtersPanel: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    borderRadius: 12,
+    padding: 16,
+    elevation: 2,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+ dateButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: COLORS.light,
+  padding: 12,
+  borderRadius: 10,
+  marginHorizontal: 3,
+  elevation: 2,
+},
+  dateButtonText: {
+  marginLeft: 6,
+  color: COLORS.text,
+  fontWeight: '500',
+  fontSize: 15,
+  
+},
+  pickerContainer: {
+    flex: 1,
+    backgroundColor: COLORS.light,
+    borderRadius: 8,
+    marginHorizontal: 4,
+    overflow: 'hidden',
+  },
+  picker: {
     height: 50,
+    color: COLORS.text,
   },
-  pickerModal: {
-    backgroundColor: '#f0f0f0',
-    marginVertical: 10,
+  listContainer: {
+    padding: 16,
+    paddingBottom: 32,
   },
-  lista: { padding: 10 },
-  card: { 
-    backgroundColor: '#fff', 
-    padding: 12, 
-    marginBottom: 10, 
-    borderRadius: 10, 
-    elevation: 2 
+  loader: {
+    marginTop: 40,
   },
-  label: { 
-    fontWeight: 'bold' 
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
   },
-  link: { 
-    color: '#007BFF', 
-    marginTop: 4 
-  },
-  subtitulo: {
+  emptyText: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginVertical: 10,
-    color: '#444',
-    paddingLeft: 10,
+    color: COLORS.text,
+    marginTop: 16,
   },
-  botaoPDF: {
-    backgroundColor: '#007BFF',
-    padding: 12,
-    borderRadius: 8,
-    marginHorizontal: 10,
-    marginBottom: 10,
+  emptySubtext: {
+    fontSize: 14,
+    color: COLORS.text,
+    textAlign: 'center',
+    marginTop: 8,
   },
-  textoBotaoPDF: {
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    marginTop: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.dark,
+  },
+  sectionBadge: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginLeft: 10,
+  },
+  sectionBadgeText: {
     color: '#fff',
     fontWeight: 'bold',
-    textAlign: 'center',
   },
-  modalOverlay: {
+  card: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  cardConcluida: {
+    borderLeftWidth: 6,
+    borderLeftColor: COLORS.success,
+  },
+  cardPendente: {
+    borderLeftWidth: 6,
+    borderLeftColor: COLORS.warning,
+  },
+  cardCancelada: {
+    borderLeftWidth: 6,
+    borderLeftColor: COLORS.danger,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.dark,
+    flexShrink: 1,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  badgeSuccess: {
+    backgroundColor: '#e8f5e9',
+  },
+  badgeWarning: {
+    backgroundColor: '#fff8e1',
+  },
+  badgeDanger: {
+    backgroundColor: '#ffebee',
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  cardBody: {
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  infoText: {
+    marginLeft: 8,
+    color: COLORS.text,
+  },
+  canhotoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#e3f2fd',
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  canhotoText: {
+    marginLeft: 8,
+    color: COLORS.primary,
+    fontWeight: '500',
+  },
+  canhotoMissing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#fff8e1',
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  canhotoMissingText: {
+    marginLeft: 8,
+    color: COLORS.warning,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingTop: 12,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionText: {
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  imageModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  fullImage: {
+    width: '100%',
+    height: '70%',
+  },
+  downloadButton: {
+    position: 'absolute',
+    bottom: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+  },
+  downloadText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  assignModal: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  modalBox: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
+  assignModalContent: {
+    backgroundColor: '#fff',
     width: '90%',
-    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 15,
+    color: COLORS.dark,
+    marginBottom: 20,
     textAlign: 'center',
+  },
+  assignmentInfo: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  infoLabel: {
+    fontWeight: 'bold',
+    color: COLORS.text,
+    width: 80,
+  },
+  infoValue: {
+    flex: 1,
+    color: COLORS.text,
+  },
+  pickerModalContainer: {
+    backgroundColor: COLORS.light,
+    borderRadius: 12,
+    marginVertical: 16,
+    overflow: 'hidden',
+  },
+  pickerModal: {
+    height: 50,
   },
   modalButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 20,
+    justifyContent: 'space-between',
+    marginTop: 16,
   },
-  botaoFecharModal: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
-    zIndex: 10,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 10,
-    borderRadius: 20,
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 6,
   },
-  textoFecharModal: {
-    color: 'white',
+  cancelButton: {
+    backgroundColor: COLORS.light,
+  },
+  assignButton: {
+    backgroundColor: COLORS.primary,
+  },
+  buttonText: {
+    fontWeight: 'bold',
     fontSize: 16,
   },
-  imagemModal: {
-    width: '100%',
-    height: '80%',
-    resizeMode: 'contain',
-    backgroundColor: 'white',
-  },
-  modalInfo: {
-    fontSize: 16,
-    marginBottom: 5,
-    color: '#555',
-  },
-  carregandoModal: {
-    marginVertical: 20,
-  },
-  cardConcluida: {
-    backgroundColor: '#e8f5e9',
-    borderLeftWidth: 4,
-    borderLeftColor: '#4caf50',
-  },
-  cardPendente: {
-    backgroundColor: '#fffde7',
-    borderLeftWidth: 4,
-    borderLeftColor: '#ffc107',
+  assignButtonText: {
+    color: '#fff',
   },
 });

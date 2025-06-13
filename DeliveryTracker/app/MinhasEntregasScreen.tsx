@@ -1,4 +1,4 @@
-// ✅ MinhasEntregasScreen.tsx - Versão Corrigida com Offline Robustecido
+// MinhasEntregasScreen.tsx
 import React, { useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import ProtectedRoute from './ProtectedRoute';
@@ -12,31 +12,56 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  RefreshControl,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system'; // Importe o FileSystem
+import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { API } from './config';
+import { Ionicons } from '@expo/vector-icons';
+
+// Paleta de cores moderna
+const COLORS = {
+  primary: '#4361ee',
+  secondary: '#3f37c9',
+  accent: '#4895ef',
+  success: '#4cc9f0',
+  danger: '#f72585',
+  warning: '#f8961e',
+  light: '#f8f9fa',
+  dark: '#212529',
+  gray: '#adb5bd',
+  card: '#ffffff',
+};
 
 export default function MinhasEntregasScreen() {
-  const [entregas, setEntregas] = useState([]);
+  const [entregas, setEntregas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [reenviando, setReenviando] = useState(false);
   const [modalImagemVisivel, setModalImagemVisivel] = useState(false);
   const [imagemSelecionada, setImagemSelecionada] = useState('');
   const [modalConfirmacao, setModalConfirmacao] = useState(false);
-  const [entregaSelecionada, setEntregaSelecionada] = useState(null);
+  const [entregaSelecionada, setEntregaSelecionada] = useState<any>(null);
+  const [estaOffline, setEstaOffline] = useState(false);
 
   useEffect(() => {
     solicitarPermissaoCamera();
     tentarReenviarPendentes();
+    
+    // Monitorar estado da rede
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setEstaOffline(!state.isConnected);
+    });
+    
+    return () => unsubscribe();
   }, []);
 
   const solicitarPermissaoCamera = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permissão necessária', 'Permita acesso à câmera para tirar fotos.');
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à câmera para registrar os canhotos');
     }
   };
 
@@ -47,50 +72,66 @@ export default function MinhasEntregasScreen() {
   );
 
   const carregarEntregas = async () => {
-  setCarregando(true);
+  setRefreshing(true);
   try {
     const usuario = await AsyncStorage.getItem('usuario');
-    const { token, id } = JSON.parse(usuario || '{}');
-    
-    const response = await fetch(API.MINHAS_ENTREGAS, {
+    const { token } = JSON.parse(usuario || '{}');
+
+    if (!token) {
+      throw new Error('Token de autenticação não encontrado');
+    }
+
+    const response = await fetch(API.MINHAS_ENTREGAS(), { // <- CORRETO AGORA
       headers: { Authorization: token },
     });
 
-    if (!response.ok) throw new Error();
+    console.log('Resposta da API:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`Erro na API: ${response.status}`);
+    }
 
     const data = await response.json();
-    
-    // Filtra apenas entregas pendentes para exibição
-    const entregasPendentes = data.filter((e: any) => e.status === 'PENDENTE');
-    setEntregas(entregasPendentes);
-    
-  } catch {
-    Alert.alert('Erro', 'Não foi possível carregar suas entregas.');
+    const agora = new Date();
+    const entregasFiltradas = data.filter((e: any) => {
+      if (e.status === 'PENDENTE') return true;
+      if (e.status === 'ENTREGUE' && e.data_entrega) {
+        const dataEntrega = new Date(e.data_entrega);
+        const diffHoras = (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
+        return diffHoras <= 12;
+      }
+      return false;
+    });
+
+    setEntregas(entregasFiltradas);
+  } catch (error: any) {
+    console.error('Erro ao carregar entregas:', error);
+    Alert.alert('Erro', error.message || 'Não foi possível carregar suas entregas');
+  } finally {
+    setCarregando(false);
+    setRefreshing(false);
   }
-  setCarregando(false);
 };
+
 
   const enviarCanhoto = async (entregaId: number) => {
     try {
-      const res = await ImagePicker.launchCameraAsync({
+      const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.7,
-        allowsEditing: true,
+        quality: 0.8,
         aspect: [4, 3],
       });
 
-      if (res.canceled) return;
+      if (result.canceled) return;
 
-      const { uri } = res.assets[0];
+      const { uri } = result.assets[0];
       const usuario = await AsyncStorage.getItem('usuario');
       const token = JSON.parse(usuario || '{}').token;
 
-      const rede = await NetInfo.fetch();
-      
       // Se offline, salvar localmente
-      if (!rede.isConnected) {
+      if (estaOffline) {
         await salvarOffline(entregaId, uri);
-        Alert.alert('Offline', 'Canhoto salvo localmente e será reenviado quando houver conexão.');
+        Alert.alert('Offline', 'Canhoto salvo localmente. Será enviado automaticamente quando houver conexão');
         return;
       }
 
@@ -99,11 +140,10 @@ export default function MinhasEntregasScreen() {
       
     } catch (err) {
       console.error('Erro ao enviar canhoto:', err);
-      Alert.alert('Erro', 'Falha ao enviar canhoto. Tente novamente.');
+      Alert.alert('Erro', 'Falha ao enviar canhoto. Tente novamente');
     }
   };
 
-  // Função para enviar o canhoto quando online
   const enviarCanhotoOnline = async (entregaId: number, uri: string, token: string) => {
     const formData = new FormData();
     formData.append('file', {
@@ -121,20 +161,17 @@ export default function MinhasEntregasScreen() {
     });
 
     const resposta = await response.json();
-    console.log('Resposta do servidor:', resposta);
-
+    
     if (resposta.success) {
       Alert.alert('Sucesso', 'Canhoto enviado com sucesso!');
       carregarEntregas();
     } else {
-      throw new Error(resposta.error || 'Erro desconhecido');
+      throw new Error(resposta.error || 'Erro ao enviar canhoto');
     }
   };
 
-  // CORREÇÃO: Salvar offline usando FileSystem
   const salvarOffline = async (entregaId: number, uri: string) => {
     try {
-      // Ler o arquivo como base64
       const base64Data = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -152,97 +189,82 @@ export default function MinhasEntregasScreen() {
       await AsyncStorage.setItem('canhotosPendentes', JSON.stringify(lista));
     } catch (error) {
       console.error('Erro ao salvar offline:', error);
-      Alert.alert('Erro', 'Falha ao salvar o canhoto offline.');
+      Alert.alert('Erro', 'Falha ao salvar o canhoto offline');
     }
   };
 
-  // CORREÇÃO: Reenviar pendentes usando base64
   const tentarReenviarPendentes = async () => {
-  setReenviando(true);
-  
-  try {
-    const usuario = await AsyncStorage.getItem('usuario');
-    const token = JSON.parse(usuario || '{}').token;
-    const pendentes = await AsyncStorage.getItem('canhotosPendentes');
+    if (estaOffline) return;
     
-    if (!pendentes) {
-      setReenviando(false);
-      return;
-    }
+    setReenviando(true);
+    
+    try {
+      const pendentes = await AsyncStorage.getItem('canhotosPendentes');
+      if (!pendentes) return;
 
-    const lista = JSON.parse(pendentes);
-    const enviados = [];
-    const falhas = [];
+      const lista = JSON.parse(pendentes);
+      const usuario = await AsyncStorage.getItem('usuario');
+      const token = JSON.parse(usuario || '{}').token;
+      const enviados = [];
+      const falhas = [];
 
-    for (const item of lista) {
-      // Verificação crítica para dados corrompidos
-      if (!item.imagemBase64) {
-        console.warn(`Canhoto pendente para entrega ${item.entregaId} sem dados de imagem. Item ignorado.`);
-        continue;
-      }
+      for (const item of lista) {
+        if (!item.imagemBase64) continue;
 
-      try {
-        const fileUri = `${FileSystem.cacheDirectory}${item.nome}`;
-        
-        // Escreve o arquivo temporário
-        await FileSystem.writeAsStringAsync(fileUri, item.imagemBase64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        try {
+          const fileUri = `${FileSystem.cacheDirectory}${item.nome}`;
+          
+          await FileSystem.writeAsStringAsync(fileUri, item.imagemBase64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
 
-        const formData = new FormData();
-        formData.append('file', {
-          uri: fileUri,
-          name: item.nome,
-          type: item.tipo,
-        } as any);
+          const formData = new FormData();
+          formData.append('file', {
+            uri: fileUri,
+            name: item.nome,
+            type: item.tipo,
+          } as any);
 
-        const res = await fetch(`${API.CANHOTO}/${item.entregaId}`, {
-          method: 'POST',
-          body: formData,
-          headers: {
-            Authorization: token,
-          },
-        });
+          const res = await fetch(`${API.CANHOTO}/${item.entregaId}`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+              Authorization: token,
+            },
+          });
 
-        const resposta = await res.json();
-        
-        if (resposta.success) {
-          enviados.push(item);
-          await FileSystem.deleteAsync(fileUri); // Limpeza do arquivo temporário
-        } else {
+          const resposta = await res.json();
+          
+          if (resposta.success) {
+            enviados.push(item);
+            await FileSystem.deleteAsync(fileUri);
+          } else {
+            falhas.push(item);
+          }
+        } catch (err) {
           falhas.push(item);
         }
-      } catch (err) {
-        console.error('Erro ao reenviar pendente:', err);
-        falhas.push(item);
       }
+
+      await AsyncStorage.setItem('canhotosPendentes', JSON.stringify(falhas));
+      
+      if (enviados.length > 0) {
+        Alert.alert('Sucesso', `${enviados.length} canhotos pendentes enviados!`);
+        carregarEntregas();
+      }
+    } catch (err) {
+      console.error('Erro no reenvio:', err);
+    } finally {
+      setReenviando(false);
     }
+  };
 
-    // Atualiza lista de pendentes com filtro de segurança
-    const itensValidos = falhas.filter(item => !!item.imagemBase64);
-    await AsyncStorage.setItem('canhotosPendentes', JSON.stringify(itensValidos));
-    
-    if (enviados.length > 0) {
-      Alert.alert('Sucesso', `${enviados.length} canhotos pendentes foram enviados!`);
-      carregarEntregas();
-    }
-  } catch (err) {
-    console.error('Erro geral no processo de reenvio:', err);
-    Alert.alert('Erro', 'Ocorreu um problema ao tentar reenviar pendentes');
-  } finally {
-    setReenviando(false);
-  }
-};
-
-  // Restante do código permanece igual...
-  // ... (funções de renderização, modais, etc)
-
-  const confirmarEnvio = (entrega) => {
+  const confirmarEnvio = (entrega: any) => {
     setEntregaSelecionada(entrega);
     setModalConfirmacao(true);
   };
 
-  const visualizarCanhoto = (caminho) => {
+  const visualizarCanhoto = (caminho: string) => {
     const filename = caminho.split('/').pop();
     const url = `${API.BASE}/uploads/${filename}`;
     setImagemSelecionada(url);
@@ -252,114 +274,164 @@ export default function MinhasEntregasScreen() {
   const renderItem = ({ item }: any) => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.nota}>📦 Nota: {item.nota}</Text>
-        <Text style={[styles.status, item.status === 'PENDENTE' ? styles.pendente : styles.entregue]}>
-          {item.status}
+        <View style={styles.statusContainer}>
+          <View style={[
+            styles.statusIndicator,
+            item.status === 'PENDENTE' ? styles.pendente : styles.entregue
+          ]} />
+          <Text style={styles.statusText}>{item.status}</Text>
+        </View>
+        <Text style={styles.nota}>NF: {item.nota}</Text>
+      </View>
+
+      <View style={styles.infoContainer}>
+        <Ionicons name="business-outline" size={18} color={COLORS.gray} />
+        <Text style={styles.cliente}>{item.cliente_nome}</Text>
+      </View>
+
+      <View style={styles.infoContainer}>
+        <Ionicons name="calendar-outline" size={18} color={COLORS.gray} />
+        <Text style={styles.infoText}>
+          {new Date(item.data_emissao).toLocaleDateString('pt-BR')}
         </Text>
       </View>
 
-      <Text style={styles.label}>👤 Cliente: {item.cliente_nome}</Text>
-      <Text style={styles.label}>📅 Data: {new Date(item.data_emissao).toLocaleDateString('pt-BR')}</Text>
-      <Text style={styles.label}>💰 Valor: R$ {parseFloat(item.valor_total).toFixed(2)}</Text>
+      <View style={styles.infoContainer}>
+        <Ionicons name="cash-outline" size={18} color={COLORS.gray} />
+        <Text style={styles.infoText}>R$ {parseFloat(item.valor_total).toFixed(2)}</Text>
+      </View>
 
-      {item.canhoto_path ? (
-        <TouchableOpacity
-          style={styles.btnVerCanhoto}
-          onPress={() => visualizarCanhoto(item.canhoto_path)}
-        >
-          <Text style={styles.btnTextVer}>👁️ Ver Canhoto</Text>
-        </TouchableOpacity>
-      ) : (
-        <Text style={styles.semCanhoto}>⚠️ Canhoto não disponível</Text>
-      )}
+      <View style={styles.actionsContainer}>
+        {item.canhoto_path ? (
+          <TouchableOpacity
+            style={styles.btnSecondary}
+            onPress={() => visualizarCanhoto(item.canhoto_path)}
+          >
+            <Ionicons name="eye-outline" size={18} color={COLORS.primary} />
+            <Text style={styles.btnTextSecondary}>Ver Canhoto</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.semCanhoto}>Canhoto não disponível</Text>
+        )}
 
-      {item.status === 'PENDENTE' && (
-        <TouchableOpacity 
-          style={styles.btnCanhoto} 
-          onPress={() => confirmarEnvio(item)}
-        >
-          <Text style={styles.btnText}>📸 Enviar Canhoto</Text>
-        </TouchableOpacity>
-      )}
+        {item.status === 'PENDENTE' && (
+          <TouchableOpacity 
+            style={[styles.btnPrimary, estaOffline && styles.btnDisabled]}
+            onPress={() => confirmarEnvio(item)}
+            disabled={estaOffline}
+          >
+            <Ionicons name="camera-outline" size={18} color="#fff" />
+            <Text style={styles.btnTextPrimary}>
+              {estaOffline ? 'Salvo Local' : 'Enviar Canhoto'}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 
   return (
     <ProtectedRoute>
       <View style={styles.container}>
-        <Text style={styles.title}>📋 Minhas Entregas</Text>
-        
+        <View style={styles.header}>
+          <Text style={styles.title}>Minhas Entregas</Text>
+          <Ionicons name="car-outline" size={28} color={COLORS.primary} />
+        </View>
+
+        {estaOffline && (
+          <View style={styles.offlineBanner}>
+            <Ionicons name="cloud-offline-outline" size={20} color="#fff" />
+            <Text style={styles.offlineText}>Você está offline</Text>
+          </View>
+        )}
+
         {reenviando && (
           <View style={styles.reenvioContainer}>
-            <ActivityIndicator size="small" color="#0066cc" />
+            <ActivityIndicator size="small" color={COLORS.primary} />
             <Text style={styles.reenviando}>Enviando canhotos pendentes...</Text>
           </View>
         )}
-        
-        {carregando ? (
-          <View style={styles.carregandoContainer}>
-            <ActivityIndicator size="large" color="#007bff" />
-            <Text style={styles.carregandoTexto}>Carregando entregas...</Text>
+
+        <FlatList
+          data={entregas}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            !carregando ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="file-tray-outline" size={60} color={COLORS.gray} />
+                <Text style={styles.emptyTitle}>Nenhuma entrega</Text>
+                <Text style={styles.emptyText}>Você não tem entregas atribuídas no momento</Text>
+              </View>
+            ) : null
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={carregarEntregas}
+              colors={[COLORS.primary]}
+              tintColor={COLORS.primary}
+            />
+          }
+          ListFooterComponent={<View style={{ height: 30 }} />}
+        />
+
+        {carregando && !refreshing && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
           </View>
-        ) : entregas.length === 0 ? (
-          <View style={styles.semEntregasContainer}>
-            <Text style={styles.semEntregasTexto}>Nenhuma entrega encontrada</Text>
-            <Text style={styles.semEntregasSubtexto}>Você não tem entregas atribuídas no momento</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={entregas}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderItem}
-            contentContainerStyle={{ paddingBottom: 40 }}
-            ItemSeparatorComponent={() => <View style={{ height: 15 }} />}
-          />
         )}
 
         {/* Modal de Visualização de Canhoto */}
         <Modal visible={modalImagemVisivel} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <TouchableOpacity
-              style={styles.botaoFecharModal}
+              style={styles.modalCloseButton}
               onPress={() => setModalImagemVisivel(false)}
             >
-              <Text style={styles.textoFecharModal}>✖ Fechar</Text>
+              <Ionicons name="close" size={28} color="#fff" />
             </TouchableOpacity>
             
             <Image
               source={{ uri: imagemSelecionada }}
               style={styles.imagemModal}
               resizeMode="contain"
-              onError={() => Alert.alert('Erro', 'Não foi possível carregar o canhoto')}
             />
           </View>
         </Modal>
 
-        {/* Modal de Confirmação de Envio */}
-        <Modal visible={modalConfirmacao} transparent animationType="slide">
+        {/* Modal de Confirmação */}
+        <Modal visible={modalConfirmacao} transparent animationType="fade">
           <View style={styles.modalOverlay}>
-            <View style={styles.modalConfirmacao}>
-              <Text style={styles.modalTitulo}>Enviar Canhoto</Text>
-              <Text style={styles.modalTexto}>
-                Confirma o envio do canhoto para a entrega da nota {entregaSelecionada?.nota}?
-              </Text>
+            <View style={styles.confirmModal}>
+              <Text style={styles.modalTitle}>Enviar Canhoto</Text>
               
-              <View style={styles.modalBotoes}>
+              <View style={styles.modalBody}>
+                <Ionicons name="document-attach-outline" size={40} color={COLORS.primary} />
+                <Text style={styles.modalText}>
+                  Confirmar envio do canhoto para a nota:
+                </Text>
+                <Text style={styles.noteText}>{entregaSelecionada?.nota}</Text>
+                <Text style={styles.clientText}>{entregaSelecionada?.cliente_nome}</Text>
+              </View>
+              
+              <View style={styles.modalButtons}>
                 <TouchableOpacity 
-                  style={styles.modalBotaoCancelar}
+                  style={styles.cancelButton}
                   onPress={() => setModalConfirmacao(false)}
                 >
-                  <Text style={styles.modalBotaoTexto}>Cancelar</Text>
+                  <Text style={styles.cancelButtonText}>Cancelar</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
-                  style={styles.modalBotaoConfirmar}
+                  style={styles.confirmButton}
                   onPress={() => {
                     setModalConfirmacao(false);
                     enviarCanhoto(entregaSelecionada.id);
                   }}
                 >
-                  <Text style={styles.modalBotaoTexto}>Confirmar</Text>
+                  <Text style={styles.confirmButtonText}>Confirmar</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -371,182 +443,269 @@ export default function MinhasEntregasScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f0f4f8' },
-  title: { 
-    fontSize: 24, 
-    fontWeight: 'bold', 
-    marginBottom: 15, 
-    textAlign: 'center', 
-    color: '#2c3e50',
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    elevation: 2,
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.light,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 10,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: COLORS.dark,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.warning,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  offlineText: {
+    color: '#fff',
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  reenvioContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e6f7ff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  reenviando: {
+    color: COLORS.primary,
+    marginLeft: 8,
+    fontWeight: '500',
   },
   card: {
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
     padding: 20,
-    borderRadius: 15,
+    marginBottom: 16,
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 10,
-    elevation: 5,
+    shadowRadius: 6,
+    elevation: 3,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
-    paddingBottom: 10,
+    marginBottom: 15,
+    paddingBottom: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#f0f0f0',
   },
-  nota: { fontWeight: 'bold', fontSize: 16, color: '#2c3e50' },
-  label: { fontSize: 15, color: '#555', marginVertical: 3 },
-  status: { 
-    fontWeight: 'bold', 
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    fontSize: 14,
-  },
-  pendente: { backgroundColor: '#ffeaa7', color: '#d35400' },
-  entregue: { backgroundColor: '#d5f5e3', color: '#27ae60' },
-  btnCanhoto: {
-    backgroundColor: '#3498db',
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnVerCanhoto: {
-    backgroundColor: '#2ecc71',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 10,
-    alignItems: 'center',
-  },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  btnTextVer: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
-  semCanhoto: { 
-    color: '#e74c3c', 
-    textAlign: 'center', 
-    marginTop: 10,
-    fontStyle: 'italic',
-  },
-  reenvioContainer: {
+  statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#e3f2fd',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 15,
   },
-  reenviando: { 
-    color: '#0066cc', 
+  statusIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  pendente: {
+    backgroundColor: COLORS.warning,
+  },
+  entregue: {
+    backgroundColor: COLORS.success,
+  },
+  statusText: {
+    fontWeight: '600',
+    fontSize: 14,
+    color: COLORS.dark,
+  },
+  nota: {
+    fontWeight: '700',
+    fontSize: 16,
+    color: COLORS.dark,
+  },
+  infoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cliente: {
+    fontSize: 16,
+    color: COLORS.dark,
     marginLeft: 10,
     fontWeight: '500',
   },
-  carregandoContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 40,
+  infoText: {
+    fontSize: 15,
+    color: COLORS.dark,
+    marginLeft: 10,
   },
-  carregandoTexto: {
-    marginTop: 15,
-    color: '#7f8c8d',
-    fontSize: 16,
-  },
-  semEntregasContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 30,
-  },
-  semEntregasTexto: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#7f8c8d',
-    marginBottom: 10,
-  },
-  semEntregasSubtexto: {
-    fontSize: 16,
-    color: '#95a5a6',
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
-  },
-  botaoFecharModal: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
-    zIndex: 10,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    padding: 10,
-    borderRadius: 20,
-  },
-  textoFecharModal: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  imagemModal: {
-    width: '95%',
-    height: '85%',
-    backgroundColor: '#000',
-  },
-  modalConfirmacao: {
-    backgroundColor: '#ffffff',
-    padding: 25,
-    borderRadius: 15,
-    width: '90%',
-    maxWidth: 400,
-  },
-  modalTitulo: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 15,
-    color: '#2c3e50',
-  },
-  modalTexto: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 25,
-    color: '#555',
-    lineHeight: 24,
-  },
-  modalBotoes: {
+  actionsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  modalBotaoCancelar: {
-    backgroundColor: '#e0e0e0',
-    padding: 14,
-    borderRadius: 10,
-    flex: 1,
-    marginRight: 10,
     alignItems: 'center',
+    marginTop: 15,
   },
-  modalBotaoConfirmar: {
-    backgroundColor: '#3498db',
-    padding: 14,
+  btnPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
     borderRadius: 10,
     flex: 1,
     marginLeft: 10,
+    justifyContent: 'center',
+  },
+  btnDisabled: {
+    backgroundColor: COLORS.gray,
+  },
+  btnTextPrimary: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
+    marginLeft: 8,
+  },
+  btnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    justifyContent: 'center',
+  },
+  btnTextSecondary: {
+    color: COLORS.primary,
+    fontWeight: '600',
+    fontSize: 15,
+    marginLeft: 8,
+  },
+  semCanhoto: {
+    color: COLORS.danger,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    flex: 1,
+  },
+  listContent: {
+    paddingBottom: 20,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: COLORS.dark,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: COLORS.gray,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  modalBotaoTexto: {
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  imagemModal: {
+    width: '90%',
+    height: '80%',
+    borderRadius: 12,
+  },
+  confirmModal: {
+    backgroundColor: COLORS.card,
+    width: '90%',
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.dark,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalBody: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  modalText: {
+    fontSize: 16,
+    color: COLORS.dark,
+    textAlign: 'center',
+    marginTop: 15,
+  },
+  noteText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginTop: 10,
+  },
+  clientText: {
+    fontSize: 18,
+    color: COLORS.dark,
+    fontWeight: '500',
+    marginTop: 5,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    marginTop: 25,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#f0f0f0',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  cancelButtonText: {
+    color: COLORS.dark,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: COLORS.primary,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  confirmButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '600',
     fontSize: 16,
   },
 });

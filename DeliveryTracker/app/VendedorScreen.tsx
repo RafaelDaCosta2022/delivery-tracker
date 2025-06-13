@@ -79,20 +79,27 @@ export default function VendedorScreen() {
     carregarRelatorio();
   };
 
-  // Agrupar entregas por motorista
-  const entregasAgrupadas = useMemo(() => {
-    return relatorio.reduce((acc: any, entrega: any) => {
-      const key = entrega.motorista || 'sem-motorista';
-      if (!acc[key]) {
-        acc[key] = {
-          motorista: entrega.motorista_nome || 'Não atribuído',
-          entregas: []
-        };
-      }
-      acc[key].entregas.push(entrega);
-      return acc;
-    }, {});
-  }, [relatorio]);
+  // Filtra entregas apenas com motorista atribuído
+const entregasComMotorista = useMemo(() => {
+  return relatorio.filter((entrega: any) => entrega.motorista && entrega.motorista_nome);
+}, [relatorio]);
+
+// Agrupa as entregas por motorista
+const entregasAgrupadas = useMemo(() => {
+  // Usa o nome do motorista como chave, pois pode não ter ID único
+  return entregasComMotorista.reduce((acc: any, entrega: any) => {
+    const key = entrega.motorista_nome || 'Não atribuído';
+    if (!acc[key]) {
+      acc[key] = {
+        motorista: entrega.motorista_nome,
+        entregas: [],
+      };
+    }
+    acc[key].entregas.push(entrega);
+    return acc;
+  }, {});
+}, [entregasComMotorista]);
+
 
   // Calcular totais para gráficos
   const { totalGeral, chartData } = useMemo(() => {
@@ -318,18 +325,24 @@ const abrirImagem = (path: string) => {
 
             
             <View style={styles.chartLegendVertical}>
-  {chartData.map((item, index) => {
-    const percentual = ((item.value / totalGeral) * 100).toFixed(1);
-    return (
-      <View key={index} style={styles.legendRow}>
-        <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-        <Text style={styles.legendText}>
-          {item.name}: {item.value} ({percentual}%)
-        </Text>
-      </View>
-    );
-  })}
+ {chartData.map((item, index) => {
+  const total = chartData.reduce((acc, curr) => acc + curr.value, 0);
+  const percentual = total > 0
+    ? (item.value / total) * 100
+    : 0;
+
+  return (
+    <View key={index} style={styles.legendRow}>
+      <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+      <Text style={styles.legendText}>
+        {item.name}: {item.value} ({percentual.toFixed(1)}%)
+      </Text>
+    </View>
+  );
+})}
+
 </View>
+
           </View>
 
           <Text style={styles.sectionTitle}>Resumo por Motorista</Text>
@@ -349,6 +362,7 @@ const abrirImagem = (path: string) => {
       ))}
   </View>
 ))}
+
 
         </ScrollView>
       ) : (
@@ -406,16 +420,20 @@ const abrirImagem = (path: string) => {
       {/* Gráfico com % no label */}
       {(() => {
         const totalFatia = chartData.reduce((acc, item) => acc + item.value, 0);
-        const chartDataComPorcentagem = chartData.map(item => {
-          const percentual = ((item.value / totalFatia) * 100).toFixed(1);
-          return {
-            name: `${item.name} (${percentual}%)`,
-            population: item.value,
-            color: item.color,
-            legendFontColor: '#2c3e50',
-            legendFontSize: 14,
-          };
-        });
+const chartDataComPorcentagem = chartData.map(item => {
+  const percentual = totalFatia > 0
+    ? (item.value / totalFatia) * 100
+    : 0;
+
+  return {
+    name: `${item.name} (${percentual.toFixed(1)}%)`, // ✅ Agora funciona
+    population: item.value,
+    color: item.color,
+    legendFontColor: '#2c3e50',
+    legendFontSize: 14,
+  };
+});
+
 
         return (
           <PieChart
@@ -439,7 +457,11 @@ const abrirImagem = (path: string) => {
       {/* Legenda aprimorada */}
       <View style={styles.chartLegendVertical}>
         {chartData.map((item, index) => {
-          const percentual = ((item.value / totalGeral) * 100).toFixed(1);
+          const totalEntregas = chartData.reduce((acc, item) => acc + item.value, 0);
+const percentual = totalEntregas > 0
+  ? ((item.value / totalEntregas) * 100).toFixed(1)
+  : '0.0';
+
           return (
             <View key={index} style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: item.color }]} />

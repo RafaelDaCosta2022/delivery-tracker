@@ -1,5 +1,5 @@
-// 🚀 HomeScreen.tsx - Versão Profissional Refinada
-import React, { useEffect, useState } from 'react';
+// 🚀 HomeScreen.tsx - Versão Aprimorada
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   RefreshControl,
   ScrollView,
   Image,
-  Alert
+  Alert,
+  Animated,
+  Easing
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -43,90 +45,157 @@ export default function HomeScreen({ navigation }) {
   const [error, setError] = useState('');
   
   const hoje = moment().locale('pt-br').format('dddd, D [de] MMMM [de] YYYY');
+  const fadeAnim = useState(new Animated.Value(0))[0];
+  const scaleAnim = useState(new Animated.Value(0.95))[0];
 
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      verificarToken();
-    });
-    return unsubscribe;
-  }, [navigation]);
+  // Carrega dados automaticamente ao entrar
+useEffect(() => {
+  // ⚡ Já carrega ao montar
+  verificarToken();
+
+  const unsubscribe = navigation.addListener('focus', () => {
+    verificarToken();
+  });
+
+  // Animação de entrada
+  Animated.parallel([
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.quad)
+    }),
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 6,
+      useNativeDriver: true
+    })
+  ]).start();
+
+  return () => {
+    unsubscribe();
+    fadeAnim.setValue(0);
+    scaleAnim.setValue(0.95);
+  };
+}, []);
+
 
   const verificarToken = async () => {
     try {
+      setCarregando(true);
       const user = await AsyncStorage.getItem('usuario');
-      const token = JSON.parse(user || '{}').token;
+      const parsedUser = user ? JSON.parse(user) : {};
       
-      if (!token) {
+      if (!parsedUser.token) {
         navigation.replace('Login');
         return;
       }
       
-      carregarResumo();
+      await carregarResumo();
     } catch (err) {
       console.error('Erro ao verificar token:', err);
       navigation.replace('Login');
     }
   };
 
-  const carregarResumo = async () => {
-    setRefreshing(true);
-    setError('');
-    
-    try {
-      const user = await AsyncStorage.getItem('usuario');
-      const token = JSON.parse(user || '{}').token;
-      
-      if (!token) {
-        navigation.replace('Login');
-        return;
-      }
-      
-      const res = await fetch(`${API.RELATORIO_VENDEDOR}?data=${moment().format('YYYY-MM-DD')}`, {
-        headers: { Authorization: token },
-      });
-      
-      // Verificar se a resposta é 401 (Não autorizado)
-      if (res.status === 401) {
-        throw new Error('Sessão expirada. Faça login novamente.');
-      }
-      
-      const json = await res.json();
-      
-      if (!json.resumo) {
-        throw new Error('Dados não disponíveis');
-      }
-      
-      setResumo(json.resumo || []);
+const carregarResumo = async () => {
+  setRefreshing(true);
+  setError('');
 
-      // Calcula totais
-      let totalValor = 0;
-      let totalPendentes = 0;
-      let totalEntregues = 0;
-      
-      json.resumo.forEach((item: any) => {
-        totalValor += item.valor_total || 0;
-        totalPendentes += item.pendentes || 0;
-        totalEntregues += item.entregues || 0;
-      });
-      
-      setValorTotalDia(totalValor);
-      setPendentesTotal(totalPendentes);
-      setEntreguesTotal(totalEntregues);
-      
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Erro ao carregar dados');
-      
-      if (err.message.includes('Sessão expirada')) {
-        Alert.alert('Sessão Expirada', 'Sua sessão expirou. Por favor, faça login novamente.', [
-          { text: 'OK', onPress: () => navigation.replace('Login') }
-        ]);
-      }
-    } finally {
-      setCarregando(false);
-      setRefreshing(false);
+  try {
+    const user = await AsyncStorage.getItem('usuario');
+    const parsedUser = user ? JSON.parse(user) : {};
+    const token = parsedUser.token;
+
+    if (!token) {
+      navigation.replace('Login');
+      return;
     }
-  };
+
+    const res = await fetch(API.ENTREGAS, {
+      headers: { Authorization: token },
+    });
+
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error('Erro ao buscar entregas: ' + msg);
+    }
+
+    let entregas = await res.json();
+    const agora = new Date();
+
+    // 🔥 Só entrega COM motorista atribuído aparece!
+    entregas = entregas.filter((entrega) => {
+      if (!entrega.motorista) return false; // <-- usa 'motorista'!
+      if (entrega.status === 'PENDENTE') return true;
+      if (
+        (entrega.status === 'ENTREGUE' || entrega.status === 'CONCLUIDA') &&
+        entrega.data_entrega
+      ) {
+        const dataEntrega = new Date(entrega.data_entrega);
+        const diffHoras =
+          (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
+        return diffHoras <= 12;
+      }
+      return false;
+    });
+
+    // Agrupa por motorista (campo 'motorista')
+    const resumoPorMotorista = [];
+    const ids = new Set();
+    entregas.forEach((e) => {
+      if (!ids.has(e.motorista)) {
+        const entregasMotorista = entregas.filter(
+          (x) => x.motorista === e.motorista
+        );
+        resumoPorMotorista.push({
+          motorista_id: e.motorista,
+          motorista_nome: e.nome_motorista,
+          total_notas: entregasMotorista.length,
+          valor_total: entregasMotorista.reduce(
+            (sum, x) => sum + Number(x.valor_total || 0),
+            0
+          ),
+          pendentes: entregasMotorista.filter(
+            (x) => x.status === 'PENDENTE'
+          ).length,
+          entregues: entregasMotorista.filter(
+            (x) =>
+              x.status === 'CONCLUIDA' || x.status === 'ENTREGUE'
+          ).length,
+        });
+        ids.add(e.motorista);
+      }
+    });
+
+    setResumo(resumoPorMotorista);
+
+    // Totais do painel
+    let totalValor = 0;
+    let totalPendentes = 0;
+    let totalEntregues = 0;
+    resumoPorMotorista.forEach((item) => {
+      totalValor += item.valor_total || 0;
+      totalPendentes += item.pendentes || 0;
+      totalEntregues += item.entregues || 0;
+    });
+    setValorTotalDia(totalValor);
+    setPendentesTotal(totalPendentes);
+    setEntreguesTotal(totalEntregues);
+
+  } catch (err) {
+    setError(err.message || 'Erro ao carregar dados');
+    Alert.alert('Erro', err.message || 'Não foi possível carregar suas entregas.');
+  } finally {
+    setCarregando(false);
+    setRefreshing(false);
+  }
+};
+
+
+
+
+
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem('usuario');
@@ -134,8 +203,10 @@ export default function HomeScreen({ navigation }) {
   };
 
   // Renderiza cada motorista
-  const renderMotorista = ({ item }: { item: any }) => (
-    <View style={styles.card}>
+  const renderMotorista = useCallback(({ item }: { item: any }) => (
+    <Animated.View 
+      style={[styles.card, { opacity: fadeAnim }]}
+    >
       <View style={styles.cardHeader}>
         <View style={styles.avatarPlaceholder}>
           <Icon name="person" size={20} color="#fff" />
@@ -189,11 +260,36 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.statusLabel}>Pendentes</Text>
         </View>
       </View>
-    </View>
+    </Animated.View>
+  ), []);
+
+  // Renderiza o estado vazio
+  const renderEmptyState = () => (
+    <Animated.View 
+      style={[
+        styles.emptyContainer, 
+        { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+      ]}
+    >
+      <Icon name="directions-car" size={50} color={COLORS.textLight} />
+      <Text style={styles.emptyText}>Nenhum motorista em operação hoje</Text>
+      <Text style={styles.emptyDate}>{hoje}</Text>
+      <Text style={styles.emptySubtitle}>
+        Valor total do dia: {Number(valorTotalDia).toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        })}
+      </Text>
+    </Animated.View>
   );
 
   return (
-    <View style={styles.container}>
+    <Animated.View 
+      style={[
+        styles.container, 
+        { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+      ]}
+    >
       {/* Cabeçalho */}
       <View style={styles.header}>
         <View>
@@ -215,7 +311,12 @@ export default function HomeScreen({ navigation }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.resumoContainer}
       >
-        <View style={styles.resumoCard}>
+        <Animated.View 
+          style={[
+            styles.resumoCard,
+            { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+          ]}
+        >
           <Icon name="attach-money" size={24} color={COLORS.secondary} style={styles.resumoIcon} />
           <Text style={styles.resumoLabel}>Valor Total</Text>
           <Text style={styles.resumoValue}>
@@ -224,19 +325,29 @@ export default function HomeScreen({ navigation }) {
               currency: 'BRL',
             })}
           </Text>
-        </View>
+        </Animated.View>
         
-        <View style={styles.resumoCard}>
+        <Animated.View 
+          style={[
+            styles.resumoCard,
+            { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+          ]}
+        >
           <Icon name="check-circle" size={24} color={COLORS.accent} style={styles.resumoIcon} />
           <Text style={styles.resumoLabel}>Entregues</Text>
           <Text style={styles.resumoValue}>{entreguesTotal}</Text>
-        </View>
+        </Animated.View>
         
-        <View style={styles.resumoCard}>
+        <Animated.View 
+          style={[
+            styles.resumoCard,
+            { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+          ]}
+        >
           <Icon name="warning" size={24} color={COLORS.danger} style={styles.resumoIcon} />
           <Text style={styles.resumoLabel}>Pendentes</Text>
           <Text style={styles.resumoValue}>{pendentesTotal}</Text>
-        </View>
+        </Animated.View>
       </ScrollView>
       
       {/* Lista de Motoristas */}
@@ -246,7 +357,12 @@ export default function HomeScreen({ navigation }) {
       </View>
       
       {error ? (
-        <View style={styles.errorContainer}>
+        <Animated.View 
+          style={[
+            styles.errorContainer,
+            { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+          ]}
+        >
           <Icon name="error-outline" size={40} color={COLORS.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity 
@@ -255,17 +371,19 @@ export default function HomeScreen({ navigation }) {
           >
             <Text style={styles.retryButtonText}>Tentar Novamente</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       ) : carregando ? (
-        <View style={styles.loadingContainer}>
+        <Animated.View 
+          style={[
+            styles.loadingContainer,
+            { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+          ]}
+        >
           <ActivityIndicator size="large" color={COLORS.secondary} />
           <Text style={styles.loadingText}>Carregando dados...</Text>
-        </View>
+        </Animated.View>
       ) : resumo.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Icon name="directions-car" size={50} color={COLORS.textLight} />
-          <Text style={styles.emptyText}>Nenhum motorista em operação hoje</Text>
-        </View>
+        renderEmptyState()
       ) : (
         <FlatList
           data={resumo}
@@ -290,7 +408,7 @@ export default function HomeScreen({ navigation }) {
       >
         <Icon name="refresh" size={24} color="#FFF" />
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -325,16 +443,16 @@ const styles = StyleSheet.create({
   },
   resumoCard: {
     backgroundColor: COLORS.cardBackground,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 20,
     width: 150,
     marginRight: 12,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   resumoIcon: {
     marginBottom: 12,
@@ -367,14 +485,14 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: COLORS.cardBackground,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -483,12 +601,32 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 40,
+    padding: 20,
+    marginTop: 20,
+    backgroundColor: '#f0f4f8',
+    borderRadius: 16,
   },
   emptyText: {
-    fontSize: 16,
-    color: COLORS.textLight,
+    fontSize: 18,
+    color: COLORS.primary,
     marginTop: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  emptyDate: {
+    fontSize: 16,
+    color: COLORS.text,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  emptySubtitle: {
+    fontSize: 16,
+    color: COLORS.text,
+    marginTop: 12,
+    fontWeight: '700',
+    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+    padding: 12,
+    borderRadius: 12,
     textAlign: 'center',
   },
   errorContainer: {
@@ -509,11 +647,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.secondary,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 6,
+    borderRadius: 10,
+    shadowColor: '#3498db',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   retryButtonText: {
     color: '#FFF',
     fontWeight: '600',
+    fontSize: 16,
   },
   floatingButton: {
     position: 'absolute',
