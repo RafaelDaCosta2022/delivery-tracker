@@ -5,6 +5,7 @@ const cors = require('cors');
 const multer = require('multer');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
+const PDFDocument = require('pdfkit');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const ExcelJS = require('exceljs');
@@ -99,46 +100,69 @@ app.post('/cadastro', (req, res) => {
 
 app.post('/upload-nota', async (req, res) => {
   try {
-    const contentType = req.headers['content-type'];
-
+    const contentType = req.headers['content-type'] || '';
     if (!contentType.includes('application/json')) {
       return res.status(400).json({ error: 'Tipo de conteúdo inválido. Apenas JSON é aceito.' });
     }
 
-    const { nota, cliente, cnpj, dataEmissao, total, remetente } = req.body;
+    // Pega todos os campos possíveis enviados
+    const {
+      nota,
+      cliente, // nome do cliente
+      cnpj,
+      dataEmissao,
+      total,
+      remetente,
+      xml_path,
+      pdf_path
+    } = req.body;
 
+    // Valida só os campos realmente obrigatórios
     if (!nota || !cliente || !dataEmissao || !total) {
-      console.error('[UPLOAD-NOTA] Dados incompletos:', req.body);  // LOG MELHORADO
+      console.error('[UPLOAD-NOTA] Dados incompletos:', req.body);
       return res.status(400).json({ error: 'Dados incompletos para salvar a nota' });
     }
 
+    // Monta o objeto, aceita campos opcionais
     const entrega = {
       nota,
       cliente_nome: cliente,
-      cliente_cnpj: cnpj || '',
-      data_emissao: dataEmissao,
-      valor_total: total,
-      remetente_nome: remetente || '',
+      cliente_cnpj: cnpj || null,
+      data_emissao: dataEmissao || null,
+      valor_total: total || 0,
+      remetente_nome: remetente || null,
       vendedor: '',
       motorista: null,
       observacao: '',
       status: 'PENDENTE',
+      xml_path: xml_path || null,
+      pdf_path: pdf_path || null
     };
 
-    db.query('INSERT INTO entregas SET ?', entrega, (err, result) => {
-      if (err) {
-        console.error('[UPLOAD-NOTA] Erro SQL:', err.message);  // LOG MELHORADO
-        return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
-      }
+    // Faz o UPSERT na mão: insere se não existe, atualiza se já existe
+    db.query(
+      'INSERT INTO entregas SET ? ON DUPLICATE KEY UPDATE ?',
+      [entrega, entrega],
+      (err, result) => {
+        if (err) {
+          console.error('[UPLOAD-NOTA] Erro SQL:', err.message);
+          return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
+        }
 
-      console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
-      return res.json({ success: true, insertedId: result.insertId });
-    });
+        if (result.affectedRows === 1 && result.insertId > 0) {
+          console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
+        } else {
+          console.log(`♻️ Nota ${nota} já existia, dados atualizados`);
+        }
+        return res.json({ success: true, nota });
+      }
+    );
   } catch (e) {
     console.error('[UPLOAD-NOTA] Erro inesperado:', e);
     res.status(500).json({ error: 'Erro inesperado', detalhe: String(e) });
   }
 });
+
 
 
 // Upload de canhoto
