@@ -7,7 +7,7 @@ import { API } from './config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 
 export default function BuscarNotasScreen() {
   const [busca, setBusca] = useState('');
@@ -28,6 +28,7 @@ export default function BuscarNotasScreen() {
     try {
       const usuario = await AsyncStorage.getItem('usuario');
       const { token } = JSON.parse(usuario || '{}');
+      // 🔥 Sempre use ?busca= para o backend decidir!
       const url = `${API.ENTREGAS}?busca=${encodeURIComponent(busca)}`;
       const res = await fetch(url, { headers: { Authorization: token } });
       const json = await res.json();
@@ -50,12 +51,15 @@ export default function BuscarNotasScreen() {
     setModalCanhoto(true);
   };
 
-  // Baixar ou compartilhar PDF/XML
-  const baixarOuCompartilharArquivo = async (filePath: string, tipo: 'pdf' | 'xml') => {
+  // Baixar ou compartilhar PDF da nota
+  const baixarOuCompartilharPDF = async (pdfPath: string | null | undefined) => {
+    if (!pdfPath) {
+      Alert.alert('Nota sem PDF disponível!');
+      return;
+    }
     try {
-      const url = `${API.BASE}/uploads/${filePath.split('/').pop()}`;
-      const ext = tipo === 'pdf' ? '.pdf' : '.xml';
-      const fileUri = FileSystem.documentDirectory + filePath.split('/').pop();
+      const url = pdfPath.startsWith('http') ? pdfPath : `${API.BASE}/uploads/${pdfPath.split('/').pop()}`;
+      const fileUri = FileSystem.documentDirectory + pdfPath.split('/').pop();
       const downloadResum = await FileSystem.downloadAsync(url, fileUri);
       if (Platform.OS === 'ios' || Platform.OS === 'android') {
         await Sharing.shareAsync(downloadResum.uri);
@@ -63,15 +67,8 @@ export default function BuscarNotasScreen() {
         Alert.alert('Download concluído', `Arquivo salvo em: ${downloadResum.uri}`);
       }
     } catch (err) {
-      Alert.alert('Erro', `Não foi possível baixar/enviar o arquivo ${tipo.toUpperCase()}`);
+      Alert.alert('Erro', 'Não foi possível baixar/enviar o PDF');
     }
-  };
-
-  // Copiar texto
-  const copiarParaClipboard = async (texto: string) => {
-    if (!texto) return;
-    await navigator.clipboard.writeText(texto);
-    Alert.alert('Copiado!', texto);
   };
 
   return (
@@ -95,7 +92,7 @@ export default function BuscarNotasScreen() {
       ) : (
         <FlatList
           data={notas}
-          keyExtractor={item => item.id.toString()}
+          keyExtractor={item => item.id?.toString() || Math.random().toString()}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.card} onPress={() => abrirNota(item)}>
               <View style={styles.cardHeader}>
@@ -110,18 +107,6 @@ export default function BuscarNotasScreen() {
               <Text style={styles.cardCliente}>{item.cliente_nome}</Text>
               <Text style={styles.cardSubInfo}>Valor: R$ {parseFloat(item.valor_total).toFixed(2)}</Text>
               <Text style={styles.cardSubInfo}>Emissão: {item.data_emissao ? String(item.data_emissao).slice(0, 10) : '--'}</Text>
-              <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
-                {item.pdf_path && (
-                  <TouchableOpacity onPress={() => baixarOuCompartilharArquivo(item.pdf_path, 'pdf')}>
-                    <Ionicons name="document" size={20} color="#2c3e50" />
-                  </TouchableOpacity>
-                )}
-                {item.xml_path && (
-                  <TouchableOpacity onPress={() => baixarOuCompartilharArquivo(item.xml_path, 'xml')}>
-                    <FontAwesome5 name="file-code" size={20} color="#168821" />
-                  </TouchableOpacity>
-                )}
-              </View>
             </TouchableOpacity>
           )}
           ListEmptyComponent={
@@ -154,25 +139,30 @@ export default function BuscarNotasScreen() {
                 <Text style={styles.notaLabel}>Status: {notaSelecionada.status}</Text>
                 <Text style={styles.notaLabel}>Motorista: {notaSelecionada.motorista_nome || '--'}</Text>
                 <Text style={styles.notaLabel}>Observação: {notaSelecionada.observacao || '--'}</Text>
-                <View style={{ flexDirection: 'row', gap: 16, marginTop: 18 }}>
-                  {notaSelecionada.pdf_path && (
+                <View style={{ flexDirection: 'row', marginTop: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {notaSelecionada.canhoto_path ? (
                     <TouchableOpacity
                       style={styles.canhotoButton}
-                      onPress={() => baixarOuCompartilharArquivo(notaSelecionada.pdf_path, 'pdf')}
+                      onPress={() => abrirCanhoto(notaSelecionada.canhoto_path)}
                     >
-                      <Ionicons name="cloud-download" size={22} color="#2c3e50" />
-                      <Text style={{ color: '#2c3e50', marginLeft: 8 }}>Baixar PDF</Text>
+                      <MaterialIcons name="receipt" size={22} color="#3498db" />
+                      <Text style={{ color: '#3498db', marginLeft: 8 }}>Ver Canhoto</Text>
                     </TouchableOpacity>
+                  ) : (
+                    <Text style={{ color: '#e67e22' }}>Sem comprovante</Text>
                   )}
-                  {notaSelecionada.xml_path && (
-                    <TouchableOpacity
-                      style={styles.canhotoButton}
-                      onPress={() => baixarOuCompartilharArquivo(notaSelecionada.xml_path, 'xml')}
-                    >
-                      <FontAwesome5 name="file-code" size={20} color="#168821" />
-                      <Text style={{ color: '#168821', marginLeft: 8 }}>Baixar XML</Text>
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.canhotoButton,
+                      { marginLeft: 16, backgroundColor: notaSelecionada.pdf_path ? '#e8f4fc' : '#fdebd0' }
+                    ]}
+                    onPress={() => baixarOuCompartilharPDF(notaSelecionada.pdf_path)}
+                  >
+                    <Ionicons name="cloud-download" size={22} color={notaSelecionada.pdf_path ? "#2c3e50" : "#e67e22"} />
+                    <Text style={{ color: notaSelecionada.pdf_path ? "#2c3e50" : "#e67e22", marginLeft: 8 }}>
+                      {notaSelecionada.pdf_path ? "Baixar Nota" : "Nota sem PDF"}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             )}

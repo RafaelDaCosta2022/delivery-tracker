@@ -105,49 +105,31 @@ app.post('/upload-nota', async (req, res) => {
       return res.status(400).json({ error: 'Tipo de conteúdo inválido. Apenas JSON é aceito.' });
     }
 
-    // Pega todos os campos possíveis enviados
-    const {
-      nota,
-      cliente, // nome do cliente
-      cnpj,
-      dataEmissao,
-      total,
-      remetente,
-      xml_path,
-      pdf_path
-    } = req.body;
+    const { nota, cliente, cnpj, dataEmissao, total, remetente } = req.body;
 
-    // Valida só os campos realmente obrigatórios
     if (!nota || !cliente || !dataEmissao || !total) {
       console.error('[UPLOAD-NOTA] Dados incompletos:', req.body);
       return res.status(400).json({ error: 'Dados incompletos para salvar a nota' });
     }
 
-    // Monta o objeto, aceita campos opcionais
     const entrega = {
       nota,
       cliente_nome: cliente,
-      cliente_cnpj: cnpj || null,
-      data_emissao: dataEmissao || null,
-      valor_total: total || 0,
-      remetente_nome: remetente || null,
+      cliente_cnpj: cnpj || '',
+      data_emissao: dataEmissao,
+      valor_total: total,
+      remetente_nome: remetente || '',
       vendedor: '',
       motorista: null,
       observacao: '',
       status: 'PENDENTE',
-      xml_path: xml_path || null,
-      pdf_path: pdf_path || null
     };
 
-    // Faz o UPSERT na mão: insere se não existe, atualiza se já existe
-    db.query(
-      'INSERT INTO entregas SET ? ON DUPLICATE KEY UPDATE ?',
-      [entrega, entrega],
-      (err, result) => {
-        if (err) {
-          console.error('[UPLOAD-NOTA] Erro SQL:', err.message);
-          return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
-        }
+    db.query('INSERT INTO entregas SET ?', entrega, (err, result) => {
+      if (err) {
+        console.error('[UPLOAD-NOTA] Erro SQL:', err.message);  // LOG MELHORADO
+        return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
+      }
 
         if (result.affectedRows === 1 && result.insertId > 0) {
           console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
