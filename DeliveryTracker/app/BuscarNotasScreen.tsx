@@ -20,25 +20,24 @@ export default function BuscarNotasScreen() {
 
   // Busca inteligente
   const buscarNotas = async () => {
-  if (!busca || busca.length < 1) {
-    Alert.alert('Digite pelo menos 1 caractere');
-    return;
-  }
-  setCarregando(true);
-  try {
-    const usuario = await AsyncStorage.getItem('usuario');
-    const { token } = JSON.parse(usuario || '{}');
-    // 🔥 Sempre use ?busca= para o backend decidir!
-    const url = `${API.ENTREGAS}?busca=${encodeURIComponent(busca)}`;
-    const res = await fetch(url, { headers: { Authorization: token } });
-    const json = await res.json();
-    setNotas(json || []);
-  } catch {
-    Alert.alert('Erro ao buscar notas');
-  }
-  setCarregando(false);
-};
-
+    if (!busca || busca.length < 1) {
+      Alert.alert('Digite pelo menos 1 caractere');
+      return;
+    }
+    setCarregando(true);
+    try {
+      const usuario = await AsyncStorage.getItem('usuario');
+      const { token } = JSON.parse(usuario || '{}');
+      // 🔥 Sempre use ?busca= para o backend decidir!
+      const url = `${API.ENTREGAS}?busca=${encodeURIComponent(busca)}`;
+      const res = await fetch(url, { headers: { Authorization: token } });
+      const json = await res.json();
+      setNotas(json || []);
+    } catch {
+      Alert.alert('Erro ao buscar notas');
+    }
+    setCarregando(false);
+  };
 
   // Modal detalhes
   const abrirNota = (nota: any) => {
@@ -52,10 +51,14 @@ export default function BuscarNotasScreen() {
     setModalCanhoto(true);
   };
 
-  // Baixar ou compartilhar PDF
-  const baixarOuCompartilharPDF = async (pdfPath: string) => {
+  // Baixar ou compartilhar PDF da nota
+  const baixarOuCompartilharPDF = async (pdfPath: string | null | undefined) => {
+    if (!pdfPath) {
+      Alert.alert('Nota sem PDF disponível!');
+      return;
+    }
     try {
-      const url = `${API.BASE}/uploads/${pdfPath.split('/').pop()}`;
+      const url = pdfPath.startsWith('http') ? pdfPath : `${API.BASE}/uploads/${pdfPath.split('/').pop()}`;
       const fileUri = FileSystem.documentDirectory + pdfPath.split('/').pop();
       const downloadResum = await FileSystem.downloadAsync(url, fileUri);
       if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -89,7 +92,7 @@ export default function BuscarNotasScreen() {
       ) : (
         <FlatList
           data={notas}
-          keyExtractor={item => item.id.toString()}
+          keyExtractor={item => item.id?.toString() || Math.random().toString()}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.card} onPress={() => abrirNota(item)}>
               <View style={styles.cardHeader}>
@@ -136,8 +139,7 @@ export default function BuscarNotasScreen() {
                 <Text style={styles.notaLabel}>Status: {notaSelecionada.status}</Text>
                 <Text style={styles.notaLabel}>Motorista: {notaSelecionada.motorista_nome || '--'}</Text>
                 <Text style={styles.notaLabel}>Observação: {notaSelecionada.observacao || '--'}</Text>
-
-                <View style={{ flexDirection: 'row', marginTop: 14, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', marginTop: 14, alignItems: 'center', flexWrap: 'wrap' }}>
                   {notaSelecionada.canhoto_path ? (
                     <TouchableOpacity
                       style={styles.canhotoButton}
@@ -149,15 +151,18 @@ export default function BuscarNotasScreen() {
                   ) : (
                     <Text style={{ color: '#e67e22' }}>Sem comprovante</Text>
                   )}
-                  {notaSelecionada.pdf_path && (
-                    <TouchableOpacity
-                      style={[styles.canhotoButton, { marginLeft: 16 }]}
-                      onPress={() => baixarOuCompartilharPDF(notaSelecionada.pdf_path)}
-                    >
-                      <Ionicons name="cloud-download" size={22} color="#2c3e50" />
-                      <Text style={{ color: '#2c3e50', marginLeft: 8 }}>Baixar Nota</Text>
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.canhotoButton,
+                      { marginLeft: 16, backgroundColor: notaSelecionada.pdf_path ? '#e8f4fc' : '#fdebd0' }
+                    ]}
+                    onPress={() => baixarOuCompartilharPDF(notaSelecionada.pdf_path)}
+                  >
+                    <Ionicons name="cloud-download" size={22} color={notaSelecionada.pdf_path ? "#2c3e50" : "#e67e22"} />
+                    <Text style={{ color: notaSelecionada.pdf_path ? "#2c3e50" : "#e67e22", marginLeft: 8 }}>
+                      {notaSelecionada.pdf_path ? "Baixar Nota" : "Nota sem PDF"}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             )}

@@ -99,46 +99,71 @@ app.post('/cadastro', (req, res) => {
 
 app.post('/upload-nota', async (req, res) => {
   try {
-    const contentType = req.headers['content-type'];
-
+    const contentType = req.headers['content-type'] || '';
     if (!contentType.includes('application/json')) {
       return res.status(400).json({ error: 'Tipo de conteúdo inválido. Apenas JSON é aceito.' });
     }
 
-    const { nota, cliente, cnpj, dataEmissao, total, remetente } = req.body;
+    // Aceita todos os campos possíveis do XML/processamento
+    const {
+      nota,
+      cliente,         // nome do cliente (dest.xNome)
+      cnpj,            // CNPJ do destinatário (dest.CNPJ)
+      dataEmissao,     // data de emissão (ide.dhEmi)
+      total,           // valor total (total.ICMSTot.vNF)
+      remetente,       // nome do emitente (emit.xNome)
+      xml_path,        // caminho do xml salvo (opcional)
+      pdf_path,        // caminho do pdf salvo (opcional)
+      // você pode acrescentar mais campos se quiser
+    } = req.body;
 
+    // Só campos realmente obrigatórios
     if (!nota || !cliente || !dataEmissao || !total) {
-      console.error('[UPLOAD-NOTA] Dados incompletos:', req.body);  // LOG MELHORADO
+      console.error('[UPLOAD-NOTA] Dados incompletos:', req.body);
       return res.status(400).json({ error: 'Dados incompletos para salvar a nota' });
     }
 
+    // Monta o objeto de entrega aceitando campos opcionais
     const entrega = {
       nota,
       cliente_nome: cliente,
-      cliente_cnpj: cnpj || '',
-      data_emissao: dataEmissao,
-      valor_total: total,
-      remetente_nome: remetente || '',
+      cliente_cnpj: cnpj || null,
+      data_emissao: dataEmissao ? (dataEmissao.length > 10 ? dataEmissao.slice(0, 10) : dataEmissao) : null, // garante formato YYYY-MM-DD
+      valor_total: total || 0,
+      remetente_nome: remetente || null,
       vendedor: '',
       motorista: null,
       observacao: '',
       status: 'PENDENTE',
+      xml_path: xml_path || null,
+      pdf_path: pdf_path || null
     };
 
-    db.query('INSERT INTO entregas SET ?', entrega, (err, result) => {
-      if (err) {
-        console.error('[UPLOAD-NOTA] Erro SQL:', err.message);  // LOG MELHORADO
-        return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
-      }
+    // UPSERT: se já existe a nota, atualiza. Se não, insere.
+    db.query(
+      'INSERT INTO entregas SET ? ON DUPLICATE KEY UPDATE ?',
+      [entrega, entrega],
+      (err, result) => {
+        if (err) {
+          // Se der erro por UNIQUE em nota, provavelmente já tem duplicada (mas com outros dados)
+          console.error('[UPLOAD-NOTA] Erro SQL:', err.message);
+          return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
+        }
 
-      console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
-      return res.json({ success: true, insertedId: result.insertId });
-    });
+        if (result.affectedRows === 1 && result.insertId > 0) {
+          console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
+        } else {
+          console.log(`♻️ Nota ${nota} já existia, dados atualizados`);
+        }
+        return res.json({ success: true, nota });
+      }
+    );
   } catch (e) {
     console.error('[UPLOAD-NOTA] Erro inesperado:', e);
     res.status(500).json({ error: 'Erro inesperado', detalhe: String(e) });
   }
 });
+
 
 
 // Upload de canhoto
