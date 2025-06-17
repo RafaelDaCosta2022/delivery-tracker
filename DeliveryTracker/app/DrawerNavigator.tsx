@@ -122,6 +122,7 @@ export default function DrawerNavigator({ navigation }) {
           <Drawer.Screen name="Central de Controle" component={CentralControleScreen} />
           <Drawer.Screen name="Cadastro de Usuário" component={CadastroUsuarioScreen} />
           <Drawer.Screen name="Buscar Notas" component={BuscaNotasScreen} />
+           <Drawer.Screen name="Painel do Vendedor" component={VendedorScreen} />
         </>
       )}
 
