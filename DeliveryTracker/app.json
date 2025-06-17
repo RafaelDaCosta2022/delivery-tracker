@@ -11,7 +11,8 @@
       "supportsTablet": true
     },
     "android": {
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.rafael8932025.DeliveryTracker"
     },
     "web": {
       "bundler": "metro"
@@ -19,6 +20,11 @@
     "plugins": [],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0531e653-f82e-46a6-9011-7e8ccec75e6a"
+      }
     }
   }
 }

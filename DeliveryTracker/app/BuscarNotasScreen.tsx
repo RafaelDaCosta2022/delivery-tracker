@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import ImageViewing from 'react-native-image-viewing'; // ✅ Substituto moderno
 
 export default function BuscarNotasScreen() {
   const [busca, setBusca] = useState('');
@@ -18,7 +19,6 @@ export default function BuscarNotasScreen() {
   const [modalCanhoto, setModalCanhoto] = useState(false);
   const [imagemCanhoto, setImagemCanhoto] = useState<string | null>(null);
 
-  // Busca inteligente
   const buscarNotas = async () => {
     if (!busca || busca.length < 1) {
       Alert.alert('Digite pelo menos 1 caractere');
@@ -28,7 +28,6 @@ export default function BuscarNotasScreen() {
     try {
       const usuario = await AsyncStorage.getItem('usuario');
       const { token } = JSON.parse(usuario || '{}');
-      // 🔥 Sempre use ?busca= para o backend decidir!
       const url = `${API.ENTREGAS}?busca=${encodeURIComponent(busca)}`;
       const res = await fetch(url, { headers: { Authorization: token } });
       const json = await res.json();
@@ -39,19 +38,16 @@ export default function BuscarNotasScreen() {
     setCarregando(false);
   };
 
-  // Modal detalhes
   const abrirNota = (nota: any) => {
     setNotaSelecionada(nota);
     setModalVisible(true);
   };
 
-  // Ver canhoto
   const abrirCanhoto = (path: string) => {
     setImagemCanhoto(`${API.BASE}/uploads/${path.split('/').pop()}`);
     setModalCanhoto(true);
   };
 
-  // Baixar ou compartilhar PDF da nota
   const baixarOuCompartilharPDF = async (pdfPath: string | null | undefined) => {
     if (!pdfPath) {
       Alert.alert('Nota sem PDF disponível!');
@@ -118,14 +114,11 @@ export default function BuscarNotasScreen() {
         />
       )}
 
-      {/* Modal detalhes */}
+      {/* Modal de detalhes */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={styles.modalBg}>
           <View style={styles.modalContent}>
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setModalVisible(false)}
-            >
+            <TouchableOpacity style={styles.closeButton} onPress={() => setModalVisible(false)}>
               <MaterialIcons name="close" size={28} color="#2c3e50" />
             </TouchableOpacity>
             {notaSelecionada && (
@@ -170,26 +163,14 @@ export default function BuscarNotasScreen() {
         </View>
       </Modal>
 
-      {/* Modal para ver imagem do canhoto */}
-      <Modal visible={modalCanhoto} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalCanhotoBg} activeOpacity={1} onPress={() => setModalCanhoto(false)}>
-          <View style={styles.modalCanhotoContent}>
-            {imagemCanhoto && (
-              <Image
-                source={{ uri: imagemCanhoto }}
-                style={{ width: '100%', height: 350, borderRadius: 10 }}
-                resizeMode="contain"
-              />
-            )}
-            <TouchableOpacity
-              style={styles.closeCanhoto}
-              onPress={() => setModalCanhoto(false)}
-            >
-              <MaterialIcons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {/* Modal com Zoom de imagem do canhoto */}
+      <ImageViewing
+        images={[{ uri: imagemCanhoto || '' }]}
+        imageIndex={0}
+        visible={modalCanhoto}
+        onRequestClose={() => setModalCanhoto(false)}
+        backgroundColor="rgba(0,0,0,0.95)"
+      />
     </View>
   );
 }
@@ -214,8 +195,5 @@ const styles = StyleSheet.create({
   closeButton: { position: 'absolute', top: 14, right: 14, zIndex: 1 },
   notaTitle: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50', marginBottom: 6 },
   notaLabel: { fontSize: 15, color: '#333', marginBottom: 3 },
-  canhotoButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e8f4fc', padding: 9, borderRadius: 8, marginRight: 4 },
-  modalCanhotoBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
-  modalCanhotoContent: { width: '88%', alignItems: 'center', position: 'relative' },
-  closeCanhoto: { position: 'absolute', top: 18, right: 16, zIndex: 10, backgroundColor: 'rgba(44,62,80,0.6)', borderRadius: 30, padding: 4 }
+  canhotoButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e8f4fc', padding: 9, borderRadius: 8, marginRight: 4 }
 });

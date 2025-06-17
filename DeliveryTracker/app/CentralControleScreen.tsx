@@ -1,4 +1,4 @@
-// 📦 CentralControleScreen.tsx — VERSÃO PREMIUM
+// 📦 CentralControleScreen.tsx — VERSÃO PREMIUM (COMPLETA E TRATADA)
 import React, { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ProtectedRoute from './ProtectedRoute';
@@ -23,6 +23,7 @@ import {
   Easing
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import ImageViewing from 'react-native-image-viewing';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather, MaterialIcons, FontAwesome, Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -44,9 +45,12 @@ const COLORS = {
 };
 
 export default function CentralControleScreen() {
+  // Estados para controle de datas
   const hoje = new Date();
   const [inicio, setInicio] = useState(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
   const [fim, setFim] = useState(hoje);
+  
+  // Estados para UI e controle
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [tipoCalendario, setTipoCalendario] = useState<'inicio' | 'fim'>('inicio');
   const [entregas, setEntregas] = useState<any[]>([]);
@@ -55,72 +59,129 @@ export default function CentralControleScreen() {
   const [motoristas, setMotoristas] = useState<any[]>([]);
   const [motoristaSelecionado, setMotoristaSelecionado] = useState('');
   const [entregaSelecionada, setEntregaSelecionada] = useState<any>(null);
-  const [usuarioTipo, setUsuarioTipo] = useState('');
-  const [modalImagemVisivel, setModalImagemVisivel] = useState(false);
-  const [imagemSelecionada, setImagemSelecionada] = useState('');
+  const [usuarioTipo, setUsuarioTipo] = useState('');  
+  const [modalImagemVisivel, setModalImagemVisivel] = useState(false); 
+  const [imagemSelecionada, setImagemSelecionada] = useState<string | null>(null);
   const [motoristaAtribuicaoId, setMotoristaAtribuicaoId] = useState('');
   const [modalAtribuirVisivel, setModalAtribuirVisivel] = useState(false);
   const [atribuindo, setAtribuindo] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [statusSelecionado, setStatusSelecionado] = useState<string>('TODOS');
+  const [refreshing, setRefreshing] = useState(false);  
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [statusSelecionado, setStatusSelecionado] = useState('TODOS');
+  const [timeoutBusca, setTimeoutBusca] = useState<NodeJS.Timeout | null>(null);
   const rotateAnim = useState(new Animated.Value(0))[0];
-  
-  // Animação para ícone de filtro
-  const toggleFiltros = () => {
-    setFiltrosAbertos(!filtrosAbertos);
-    Animated.timing(rotateAnim, {
-      toValue: filtrosAbertos ? 0 : 1,
-      duration: 300,
-      easing: Easing.linear,
-      useNativeDriver: true
-    }).start();
-  };
 
-  const rotate = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '180deg']
-  });
-
-  // ✅ Formatar data no formato DD/MM/AAAA
-  const formatarData = (data: Date) => {
+  // ✅ Formatar data para exibição (DD/MM/AAAA)
+  const formatarDataExibicao = (data: Date) => {
     return data.toLocaleDateString('pt-BR');
   };
 
-  // 🔄 Função para buscar entregas com tratamento de cache
-  const buscarEntregas = useCallback(async () => {
-  setCarregando(true);
-
-  const formatarParaAPI = (data: Date) => {
+  // ✅ Formatar data para API (AAAA-MM-DD)
+  const formatarDataAPI = (data: Date) => {
     const ano = data.getFullYear();
     const mes = String(data.getMonth() + 1).padStart(2, '0');
     const dia = String(data.getDate()).padStart(2, '0');
     return `${ano}-${mes}-${dia}`;
   };
 
-  let query = `?dataInicio=${formatarParaAPI(inicio)}&dataFim=${formatarParaAPI(fim)}`;
-  if (motoristaSelecionado) query += `&motorista=${motoristaSelecionado}`;
-  if (busca.length >= 2) query += `&busca=${encodeURIComponent(busca)}`;
-// NÃO coloca statusSelecionado na query! Pronto!
+  // 🔄 Buscar entregas com filtros
+  const buscarEntregas = useCallback(async () => {
+    setCarregando(true);
+    setRefreshing(true);
+    try {
+      const usuario = await AsyncStorage.getItem('usuario');
+      if (!usuario) throw new Error('Usuário não autenticado');
+      
+      const parsed = JSON.parse(usuario);
+      const token = parsed.token;
+      if (!token) throw new Error('Token não encontrado');
+      
+      const params = new URLSearchParams();
+      params.append('dataInicio', formatarDataAPI(inicio));
+      params.append('dataFim', formatarDataAPI(fim));
+      
+      if (motoristaSelecionado) params.append('motorista', motoristaSelecionado);
+      if (statusSelecionado !== 'TODOS') params.append('status', statusSelecionado);
+      if (busca) params.append('busca', busca);
 
-  const usuario = await AsyncStorage.getItem('usuario');
-  const token = JSON.parse(usuario || '{}').token;
+      const response = await fetch(`${API.ENTREGAS}?${params.toString()}`, {
+        headers: { Authorization: token },
+      });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao buscar entregas');
+      }
 
+      const data = await response.json();
+      setEntregas(data);
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Falha ao carregar entregas');
+    } finally {
+      setCarregando(false);
+      setRefreshing(false);
+    }
+  }, [inicio, fim, motoristaSelecionado, statusSelecionado, busca]);
 
+  // 👥 Carregar motoristas com cache
+  const carregarMotoristas = async () => {
+    try {
+      const usuario = await AsyncStorage.getItem('usuario');
+      if (!usuario) throw new Error('Usuário não autenticado');
+      
+      const parsed = JSON.parse(usuario);
+      setUsuarioTipo(parsed.tipo);
+      const token = parsed.token;
+      if (!token) throw new Error('Token não encontrado');
+      
+      const cacheKey = 'motoristas_lista';
+      const cachedData = await AsyncStorage.getItem(cacheKey);
+      
+      if (cachedData) {
+        setMotoristas(JSON.parse(cachedData));
+      }
+      
+      const res = await fetch(API.USUARIOS, { headers: { Authorization: token } });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Erro ao carregar motoristas');
+      }
+      
+      const lista = await res.json();
+      const motoristasFiltrados = lista.filter((m: any) => m.tipo === 'motorista');
+      
+      setMotoristas(motoristasFiltrados);
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(motoristasFiltrados));
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Falha ao carregar motoristas');
+    }
+  };
 
-  try {
-    const res = await fetch(`${API.ENTREGAS}${query}`, { headers: { Authorization: token } });
-    const data = await res.json();
-    setEntregas(Array.isArray(data) ? data : []);
-  } catch {
-    Alert.alert('Erro', 'Falha ao carregar entregas');
-  } finally {
-    setCarregando(false);
-    setRefreshing(false);
-  }
-}, [inicio, fim, motoristaSelecionado, statusSelecionado, busca]);
+  // ⏳ Carregar dados iniciais
+  useEffect(() => {
+    const carregarDados = async () => {
+      await carregarMotoristas();
+      await buscarEntregas();
+    };
+    
+    carregarDados();
+  }, []);
 
+  // 🔄 Atualizar ao alterar filtros (com debounce para busca)
+  useEffect(() => {
+    if (timeoutBusca) clearTimeout(timeoutBusca);
+    
+    const novoTimeout = setTimeout(() => {
+      buscarEntregas();
+    }, 500);
+    
+    setTimeoutBusca(novoTimeout);
+    
+    return () => {
+      if (timeoutBusca) clearTimeout(timeoutBusca);
+    };
+  }, [busca, inicio, fim, motoristaSelecionado, statusSelecionado]);
 
   // 🔄 Atualizar puxando a tela para baixo
   const onRefresh = useCallback(() => {
@@ -130,110 +191,90 @@ export default function CentralControleScreen() {
 
   // 📊 Gerar relatório PDF com gráficos
   const gerarPDF = async () => {
-    // Calcular estatísticas
-    const totalEntregas = entregas.length;
-    const entregues = entregas.filter(e => e.status === 'CONCLUIDA').length;
-    const pendentes = totalEntregas - entregues;
-    
-    const html = `
-      <html>
-        <head>
-          <style>
-            body { font-family: sans-serif; }
-            h1 { color: ${COLORS.primary}; text-align: center; }
-            .stats { display: flex; justify-content: space-around; margin: 20px 0; }
-            .stat-card { background: #f0f8ff; padding: 15px; border-radius: 10px; text-align: center; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th { background-color: ${COLORS.primary}; color: white; padding: 10px; }
-            tr:nth-child(even) { background-color: #f2f2f2; }
-            td { padding: 8px; border-bottom: 1px solid #ddd; }
-            .chart-container { display: flex; margin-top: 30px; height: 200px; align-items: flex-end; }
-            .chart-bar { flex: 1; background: ${COLORS.accent}; margin: 0 5px; position: relative; }
-            .chart-label { position: absolute; bottom: -25px; width: 100%; text-align: center; }
-          </style>
-        </head>
-        <body>
-          <h1>Relatório de Entregas</h1>
-          
-          <div class="stats">
-            <div class="stat-card">
-              <h3>Total</h3>
-              <p>${totalEntregas}</p>
+    try {
+      // Calcular estatísticas
+      const totalEntregas = entregas.length;
+      const entregues = entregas.filter(e => 
+        e.status === 'CONCLUIDA' || e.status === 'ENTREGUE'
+      ).length;
+      const pendentes = totalEntregas - entregues;
+      
+      const html = `
+        <html>
+          <head>
+            <style>
+              body { font-family: sans-serif; }
+              h1 { color: ${COLORS.primary}; text-align: center; }
+              .stats { display: flex; justify-content: space-around; margin: 20px 0; }
+              .stat-card { background: #f0f8ff; padding: 15px; border-radius: 10px; text-align: center; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th { background-color: ${COLORS.primary}; color: white; padding: 10px; }
+              tr:nth-child(even) { background-color: #f2f2f2; }
+              td { padding: 8px; border-bottom: 1px solid #ddd; }
+              .chart-container { display: flex; margin-top: 30px; height: 200px; align-items: flex-end; }
+              .chart-bar { flex: 1; background: ${COLORS.accent}; margin: 0 5px; position: relative; }
+              .chart-label { position: absolute; bottom: -25px; width: 100%; text-align: center; }
+            </style>
+          </head>
+          <body>
+            <h1>Relatório de Entregas</h1>
+            
+            <div class="stats">
+              <div class="stat-card">
+                <h3>Total</h3>
+                <p>${totalEntregas}</p>
+              </div>
+              <div class="stat-card">
+                <h3>Entregues</h3>
+                <p>${entregues}</p>
+              </div>
+              <div class="stat-card">
+                <h3>Pendentes</h3>
+                <p>${pendentes}</p>
+              </div>
             </div>
-            <div class="stat-card">
-              <h3>Entregues</h3>
-              <p>${entregues}</p>
+            
+            <div class="chart-container">
+              <div style="height: ${(entregues / totalEntregas) * 100 || 0}%;" class="chart-bar">
+                <div class="chart-label">Entregues</div>
+              </div>
+              <div style="height: ${(pendentes / totalEntregas) * 100 || 0}%;" class="chart-bar">
+                <div class="chart-label">Pendentes</div>
+              </div>
             </div>
-            <div class="stat-card">
-              <h3>Pendentes</h3>
-              <p>${pendentes}</p>
-            </div>
-          </div>
-          
-          <div class="chart-container">
-            <div style="height: ${(entregues / totalEntregas) * 100 || 0}%;" class="chart-bar">
-              <div class="chart-label">Entregues</div>
-            </div>
-            <div style="height: ${(pendentes / totalEntregas) * 100 || 0}%;" class="chart-bar">
-              <div class="chart-label">Pendentes</div>
-            </div>
-          </div>
-          
-          <table>
-            <tr>
-              <th>Cliente</th>
-              <th>Nota</th>
-              <th>Data</th>
-              <th>Valor</th>
-              <th>Status</th>
-              <th>Motorista</th>
-            </tr>
-            ${entregas.map(e => `
+            
+            <table>
               <tr>
-                <td>${e.cliente_nome}</td>
-                <td>${e.nota}</td>
-                <td>${new Date(e.data_emissao).toLocaleDateString('pt-BR')}</td>
-                <td>R$ ${parseFloat(e.valor_total).toFixed(2)}</td>
-                <td>${e.status}</td>
-                <td>${e.nome_motorista || '---'}</td>
+                <th>Cliente</th>
+                <th>Nota</th>
+                <th>Data</th>
+                <th>Valor</th>
+                <th>Status</th>
+                <th>Motorista</th>
               </tr>
-            `).join('')}
-          </table>
-        </body>
-      </html>
-    `;
+              ${entregas.map(e => `
+                <tr>
+                  <td>${e.cliente_nome}</td>
+                  <td>${e.nota}</td>
+                  <td>${new Date(e.data_emissao).toLocaleDateString('pt-BR')}</td>
+                  <td>R$ ${parseFloat(e.valor_total).toFixed(2)}</td>
+                  <td>${e.status}</td>
+                  <td>${e.nome_motorista || '---'}</td>
+                </tr>
+              `).join('')}
+            </table>
+          </body>
+        </html>
+      `;
 
-    try {
       const file = await Print.printToFileAsync({ html });
-      await Sharing.shareAsync(file.uri);
-    } catch (error) {
-      Alert.alert('Erro', 'Falha ao gerar o PDF');
-    }
-  };
-
-  // 👥 Carregar motoristas com cache
-  const carregarMotoristas = async () => {
-    const usuario = await AsyncStorage.getItem('usuario');
-    const parsed = JSON.parse(usuario || '{}');
-    setUsuarioTipo(parsed.tipo);
-    const token = parsed.token;
-    
-    try {
-      const cacheKey = 'motoristas_lista';
-      const cachedData = await AsyncStorage.getItem(cacheKey);
-      
-      if (cachedData) {
-        setMotoristas(JSON.parse(cachedData));
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Erro', 'Compartilhamento não disponível neste dispositivo');
+        return;
       }
-      
-      const res = await fetch(API.USUARIOS, { headers: { Authorization: token } });
-      const lista = await res.json();
-      const motoristasFiltrados = lista.filter((m: any) => m.tipo === 'motorista');
-      
-      setMotoristas(motoristasFiltrados);
-      await AsyncStorage.setItem(cacheKey, JSON.stringify(motoristasFiltrados)); // 1 dia
-    } catch (error) {
-      console.error('Erro ao carregar motoristas:', error);
+      await Sharing.shareAsync(file.uri);
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Falha ao gerar o PDF');
     }
   };
 
@@ -242,10 +283,13 @@ export default function CentralControleScreen() {
     if (atribuindo || !motoristaAtribuicaoId || !entregaSelecionada) return;
     
     setAtribuindo(true);
-    const usuario = await AsyncStorage.getItem('usuario');
-    const token = JSON.parse(usuario || '{}').token;
-
     try {
+      const usuario = await AsyncStorage.getItem('usuario');
+      if (!usuario) throw new Error('Usuário não autenticado');
+      
+      const token = JSON.parse(usuario).token;
+      if (!token) throw new Error('Token não encontrado');
+
       const response = await fetch(API.ATRIBUIR_MOTORISTA, {
         method: 'PUT',
         headers: {
@@ -258,27 +302,26 @@ export default function CentralControleScreen() {
         }),
       });
 
-      const data = await response.json();
-      
-      if (response.ok) {
-        // Atualizar estado com imutabilidade
-        setEntregas(prev => prev.map(entrega => 
-          entrega.id === entregaSelecionada.id 
-            ? { 
-                ...entrega, 
-                status: 'PENDENTE',
-                motorista_id: parseInt(motoristaAtribuicaoId),
-                nome_motorista: motoristas.find(m => m.id == motoristaAtribuicaoId)?.nome || entrega.nome_motorista
-              } 
-            : entrega
-        ));
-        
-        Alert.alert('✅ Sucesso', `Entrega reatribuída para ${motoristas.find(m => m.id == motoristaAtribuicaoId)?.nome}`);
-      } else {
-        Alert.alert('❌ Erro', data.error || 'Falha na reatribuição');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Falha na reatribuição');
       }
-    } catch (error) {
-      Alert.alert('❌ Erro', 'Falha na comunicação com o servidor');
+
+      // Atualização otimista do estado
+      setEntregas(prev => prev.map(entrega => 
+        entrega.id === entregaSelecionada.id 
+          ? { 
+              ...entrega, 
+              status: 'PENDENTE',
+              motorista_id: parseInt(motoristaAtribuicaoId),
+              nome_motorista: motoristas.find(m => m.id == motoristaAtribuicaoId)?.nome || entrega.nome_motorista
+            } 
+          : entrega
+      ));
+      
+      Alert.alert('✅ Sucesso', `Entrega reatribuída para ${motoristas.find(m => m.id == motoristaAtribuicaoId)?.nome}`);
+    } catch (error: any) {
+      Alert.alert('❌ Erro', error.message || 'Falha na operação');
     } finally {
       setAtribuindo(false);
       setModalAtribuirVisivel(false);
@@ -289,21 +332,30 @@ export default function CentralControleScreen() {
 
   // ✔️ Marcar entrega como concluída
   const marcarComoEntregue = async (id: number) => {
-    const usuario = await AsyncStorage.getItem('usuario');
-    const token = JSON.parse(usuario || '{}').token;
-
     try {
-      await fetch(`${API.ENTREGAS}/concluir/${id}`, {
+      const usuario = await AsyncStorage.getItem('usuario');
+      if (!usuario) throw new Error('Usuário não autenticado');
+      
+      const token = JSON.parse(usuario).token;
+      if (!token) throw new Error('Token não encontrado');
+
+      const response = await fetch(`${API.ENTREGAS}/concluir/${id}`, {
         method: 'PUT',
         headers: { Authorization: token },
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Falha ao atualizar entrega');
+      }
       
       // Atualização otimista
       setEntregas(prev => prev.map(e => 
         e.id === id ? { ...e, status: 'CONCLUIDA' } : e
       ));
-    } catch (error) {
-      Alert.alert('Erro', 'Falha ao atualizar entrega');
+      Alert.alert('✅ Sucesso', 'Entrega marcada como concluída');
+    } catch (error: any) {
+      Alert.alert('❌ Erro', error.message || 'Falha ao atualizar entrega');
     }
   }; 
 
@@ -336,45 +388,50 @@ export default function CentralControleScreen() {
           { 
             text: 'Enviar', 
             onPress: async () => {
-              const usuario = await AsyncStorage.getItem('usuario');
-              const token = JSON.parse(usuario || '{}').token;
+              try {
+                const usuario = await AsyncStorage.getItem('usuario');
+                if (!usuario) throw new Error('Usuário não autenticado');
+                
+                const token = JSON.parse(usuario).token;
+                if (!token) throw new Error('Token não encontrado');
 
-              const formData = new FormData();
-              formData.append('file', {
-                uri: imagem.assets[0].uri,
-                name: `canhoto_${entregaId}.jpg`,
-                type: 'image/jpeg',
-              } as any);
+                const formData = new FormData();
+                formData.append('file', {
+                  uri: imagem.assets[0].uri,
+                  name: `canhoto_${entregaId}.jpg`,
+                  type: 'image/jpeg',
+                } as any);
 
-              const res = await fetch(`${API.CANHOTO}/${entregaId}`, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                  Authorization: token,
-                  'Content-Type': 'multipart/form-data',
-                },
-              });
+                const res = await fetch(`${API.CANHOTO}/${entregaId}`, {
+                  method: 'POST',
+                  body: formData,
+                  headers: {
+                    Authorization: token,
+                    'Content-Type': 'multipart/form-data',
+                  },
+                });
 
-              if (res.ok) {
+                if (!res.ok) {
+                  const errorData = await res.json();
+                  throw new Error(errorData.error || 'Falha no envio do canhoto');
+                }
+
                 Alert.alert('✅ Sucesso', 'Canhoto enviado com sucesso');
                 buscarEntregas();
-              } else {
-                const errorData = await res.json();
-                Alert.alert('⚠️ Erro', errorData.error || 'Falha no envio do canhoto');
+              } catch (error: any) {
+                Alert.alert('⚠️ Erro', error.message || 'Falha na operação');
               }
             }
           }
         ]
       );
-    } catch (err) {
-      console.error('❌ Erro ao reenviar canhoto:', err);
-      Alert.alert('Erro', 'Falha ao processar a imagem');
+    } catch (error: any) {
+      Alert.alert('❌ Erro', error.message || 'Falha ao processar a imagem');
     }
   };
 
   // 🎨 Componente de card de entrega
   const EntregaCard = ({ entrega }: { entrega: any }) => (
-    
     <View style={[
       styles.card,
       entrega.status === 'CONCLUIDA' && styles.cardConcluida,
@@ -392,7 +449,6 @@ export default function CentralControleScreen() {
           <Text style={styles.badgeText}>{entrega.status}</Text>
         </View>
       </View>
-      
       
       <View style={styles.cardBody}>
         <View style={styles.infoRow}>
@@ -476,21 +532,14 @@ export default function CentralControleScreen() {
     </View>
   );
 
-  // Efeitos iniciais
-  useEffect(() => {
-    buscarEntregas();
-    carregarMotoristas();
-  }, []);
-
-  // 🔎 Filtra as entregas pelo status selecionado (no frontend)
-const entregasFiltradas = statusSelecionado === 'TODOS'
-  ? entregas
-  : entregas.filter(e => {
-      // Corrige nome do status "ENTREGUE" para "CONCLUIDA" se seu backend usa um, o frontend outro
-      if (statusSelecionado === 'ENTREGUE') return e.status === 'CONCLUIDA' || e.status === 'ENTREGUE';
-      return e.status === statusSelecionado;
-    });
-
+  // 🔎 Filtra as entregas pelo status selecionado
+  const entregasFiltradas = statusSelecionado === 'TODOS'
+    ? entregas
+    : entregas.filter(e => {
+        if (statusSelecionado === 'ENTREGUE') 
+          return e.status === 'CONCLUIDA' || e.status === 'ENTREGUE';
+        return e.status === statusSelecionado;
+      });
 
   return (
     <ProtectedRoute permitido={['admin']}>
@@ -505,87 +554,95 @@ const entregasFiltradas = statusSelecionado === 'TODOS'
       </View>
 
       {/* Barra de busca */}
-            <View style={styles.searchContainer}>
-        <Feather name="search" size={20} color={COLORS.text} style={styles.searchIcon} />
+      <View style={{ position: 'relative', margin: 16 }}>
         <TextInput
-          style={styles.searchInput}
-          placeholder="Buscar cliente, nota, CNPJ..."
-          placeholderTextColor="#999"
+          placeholder="Buscar cliente, nota ou CNPJ"
           value={busca}
           onChangeText={setBusca}
-          returnKeyType="search"
+          style={styles.searchInput}
         />
-        <TouchableOpacity onPress={() => setBusca('')}>
-          <Feather name="x" size={20} color={COLORS.primary} />
-        </TouchableOpacity>
+        {busca.length > 0 && (
+          <TouchableOpacity
+            onPress={() => setBusca('')}
+            style={styles.clearSearchButton}
+          >
+            <Ionicons name="close-circle" size={20} color="gray" />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Painel de filtros expansível */}
+      {/* Painel de filtros */}
       <View style={styles.filtersPanel}>
-  <View style={styles.filterRow}>
-    <TouchableOpacity 
-      style={styles.dateButton}
-      onPress={() => { setTipoCalendario('inicio'); setMostrarCalendario(true); }}>
-      <Feather name="calendar" size={18} color={COLORS.primary} />
-      <Text style={styles.dateButtonText}>Início: {formatarData(inicio)}</Text>
-    </TouchableOpacity>
-    <Text style={{marginHorizontal:6}}>-</Text>
-    <TouchableOpacity 
-      style={styles.dateButton}
-      onPress={() => { setTipoCalendario('fim'); setMostrarCalendario(true); }}>
-      <Feather name="calendar" size={18} color={COLORS.primary} />
-      <Text style={styles.dateButtonText}>Fim: {formatarData(fim)}</Text>
-    </TouchableOpacity>
-  </View>
-  
-  <View style={styles.filterRow}>
-    <View style={styles.pickerContainer}>
-      <Picker
-        selectedValue={motoristaSelecionado}
-        onValueChange={setMotoristaSelecionado}
-        dropdownIconColor={COLORS.primary}
-        style={styles.picker}
-      >
-        <Picker.Item label="Todos motoristas" value="" />
-        {motoristas.map((m) => (
-          <Picker.Item key={m.id} label={m.nome} value={m.id} />
-        ))}
-      </Picker>
-    </View>
-    <View style={styles.pickerContainer}>
-      <Picker
-        selectedValue={statusSelecionado}
-        onValueChange={setStatusSelecionado}
-        dropdownIconColor={COLORS.primary}
-        style={styles.picker}
-      >
-        <Picker.Item label="Todos status" value="TODOS" />
-        <Picker.Item label="Pendentes" value="PENDENTE" />
-        <Picker.Item label="Concluídas" value="ENTREGUE" />
-        <Picker.Item label="Canceladas" value="CANCELADA" />
-      </Picker>
-    </View>
-  </View>
-</View>
+        <View style={styles.filterRow}>
+          <TouchableOpacity 
+            style={styles.dateButton}
+            onPress={() => { 
+              setTipoCalendario('inicio'); 
+              setMostrarCalendario(true); 
+            }}>
+            <Feather name="calendar" size={18} color={COLORS.primary} />
+            <Text style={styles.dateButtonText}>Início: {formatarDataExibicao(inicio)}</Text>
+          </TouchableOpacity>
+          
+          <Text style={{marginHorizontal: 6}}>-</Text>
+          
+          <TouchableOpacity 
+            style={styles.dateButton}
+            onPress={() => { 
+              setTipoCalendario('fim'); 
+              setMostrarCalendario(true); 
+            }}>
+            <Feather name="calendar" size={18} color={COLORS.primary} />
+            <Text style={styles.dateButtonText}>Fim: {formatarDataExibicao(fim)}</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.filterRow}>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={motoristaSelecionado}
+              onValueChange={setMotoristaSelecionado}
+              dropdownIconColor={COLORS.primary}
+              style={styles.picker}
+            >
+              <Picker.Item label="Todos motoristas" value="" />
+              {motoristas.map((m) => (
+                <Picker.Item key={m.id} label={m.nome} value={m.id} />
+              ))}
+            </Picker>
+          </View>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={statusSelecionado}
+              onValueChange={setStatusSelecionado}
+              dropdownIconColor={COLORS.primary}
+              style={styles.picker}
+            >
+              <Picker.Item label="Todos status" value="TODOS" />
+              <Picker.Item label="Pendentes" value="PENDENTE" />
+              <Picker.Item label="Concluídas" value="CONCLUIDA" />
+              <Picker.Item label="Canceladas" value="CANCELADA" />
+            </Picker>
+          </View>
+        </View>
+      </View>
 
-     {mostrarCalendario && (
-  <DateTimePicker
-    value={tipoCalendario === 'inicio' ? inicio : fim}
-    mode="date"
-    display="calendar" // <<--- força o calendário moderno cheio
-    onChange={(_, data) => {
-      setMostrarCalendario(false);
-      if (data) {
-        tipoCalendario === 'inicio' ? setInicio(data) : setFim(data);
-        buscarEntregas();
-      }
-    }}
-    minimumDate={new Date(2023, 0, 1)}
-    maximumDate={new Date(2050, 11, 31)}
-  />
-)}
-
-
+      {/* Seletor de datas */}
+      {mostrarCalendario && (
+        <DateTimePicker
+          value={tipoCalendario === 'inicio' ? inicio : fim}
+          mode="date"
+          display="calendar"
+          onChange={(_, data) => {
+            setMostrarCalendario(false);
+            if (data) {
+              tipoCalendario === 'inicio' ? setInicio(data) : setFim(data);
+            }
+          }}
+          minimumDate={new Date(2023, 0, 1)}
+          maximumDate={new Date(2050, 11, 31)}
+        />
+      )}
 
       {/* Lista de entregas com refresh */}
       <ScrollView
@@ -599,109 +656,91 @@ const entregasFiltradas = statusSelecionado === 'TODOS'
           />
         }
       >
-          {carregando ? (
-  <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
-) : entregasFiltradas.length === 0 ? (
-  <View style={styles.emptyState}>
-    <Feather name="package" size={64} color={COLORS.border} />
-    <Text style={styles.emptyText}>Nenhuma entrega encontrada</Text>
-    <Text style={styles.emptySubtext}>Ajuste os filtros ou tente novamente mais tarde</Text>
-  </View>
-) : statusSelecionado === 'TODOS' ? (
-  <>
-    {/* Agrupa por status usando entregasFiltradas */}
-    {entregasFiltradas.filter(e => e.status === 'PENDENTE').length > 0 && (
-      <>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🚚 Entregas Pendentes</Text>
-          <View style={styles.sectionBadge}>
-            <Text style={styles.sectionBadgeText}>
-              {entregasFiltradas.filter(e => e.status === 'PENDENTE').length}
-            </Text>
+        {carregando ? (
+          <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
+        ) : entregas.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Feather name="package" size={64} color={COLORS.border} />
+            <Text style={styles.emptyText}>Nenhuma entrega encontrada</Text>
+            <Text style={styles.emptySubtext}>Ajuste os filtros ou tente novamente mais tarde</Text>
           </View>
-        </View>
-        {entregasFiltradas
-          .filter(e => e.status === 'PENDENTE')
-          .map((e) => (
-            <EntregaCard key={e.id} entrega={e} />
-          ))}
-      </>
-    )}
+        ) : (
+          <>
+            {/* Seção Pendentes */}
+            {entregasFiltradas.filter(e => e.status === 'PENDENTE').length > 0 && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>🚚 Entregas Pendentes</Text>
+                  <View style={styles.sectionBadge}>
+                    <Text style={styles.sectionBadgeText}>
+                      {entregasFiltradas.filter(e => e.status === 'PENDENTE').length}
+                    </Text>
+                  </View>
+                </View>
+                {entregasFiltradas
+                  .filter(e => e.status === 'PENDENTE')
+                  .map((e) => (
+                    <EntregaCard key={e.id} entrega={e} />
+                  ))}
+              </>
+            )}
 
-    {entregasFiltradas.filter(e => e.status === 'CONCLUIDA' || e.status === 'ENTREGUE').length > 0 && (
-      <>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>✔️ Entregas Concluídas</Text>
-          <View style={styles.sectionBadge}>
-            <Text style={styles.sectionBadgeText}>
-              {entregasFiltradas.filter(e => e.status === 'CONCLUIDA' || e.status === 'ENTREGUE').length}
-            </Text>
-          </View>
-        </View>
-        {entregasFiltradas
-          .filter(e => e.status === 'CONCLUIDA' || e.status === 'ENTREGUE')
-          .map((e) => (
-            <EntregaCard key={e.id} entrega={e} />
-          ))}
-      </>
-    )}
+            {/* Seção Concluídas */}
+            {entregasFiltradas.filter(e => 
+              e.status === 'CONCLUIDA' || e.status === 'ENTREGUE'
+            ).length > 0 && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>✔️ Entregas Concluídas</Text>
+                  <View style={styles.sectionBadge}>
+                    <Text style={styles.sectionBadgeText}>
+                      {entregasFiltradas.filter(e => 
+                        e.status === 'CONCLUIDA' || e.status === 'ENTREGUE'
+                      ).length}
+                    </Text>
+                  </View>
+                </View>
+                {entregasFiltradas
+                  .filter(e => e.status === 'CONCLUIDA' || e.status === 'ENTREGUE')
+                  .map((e) => (
+                    <EntregaCard key={e.id} entrega={e} />
+                  ))}
+              </>
+            )}
 
-    {entregasFiltradas.filter(e => e.status === 'CANCELADA').length > 0 && (
-      <>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>❌ Canceladas</Text>
-          <View style={styles.sectionBadge}>
-            <Text style={styles.sectionBadgeText}>
-              {entregasFiltradas.filter(e => e.status === 'CANCELADA').length}
-            </Text>
-          </View>
-        </View>
-        {entregasFiltradas
-          .filter(e => e.status === 'CANCELADA')
-          .map((e) => (
-            <EntregaCard key={e.id} entrega={e} />
-          ))}
-      </>
-    )}
-  </>
-) : (
-  // Se filtro for só de um status, mostra tudo junto
-  entregasFiltradas.map((e) => <EntregaCard key={e.id} entrega={e} />)
-)}
-
-
+            {/* Seção Canceladas */}
+            {entregasFiltradas.filter(e => e.status === 'CANCELADA').length > 0 && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>❌ Canceladas</Text>
+                  <View style={styles.sectionBadge}>
+                    <Text style={styles.sectionBadgeText}>
+                      {entregasFiltradas.filter(e => e.status === 'CANCELADA').length}
+                    </Text>
+                  </View>
+                </View>
+                {entregasFiltradas
+                  .filter(e => e.status === 'CANCELADA')
+                  .map((e) => (
+                    <EntregaCard key={e.id} entrega={e} />
+                  ))}
+              </>
+            )}
+          </>
+        )}
       </ScrollView>
 
       {/* Modal de visualização de imagem */}
-      <Modal 
-        visible={modalImagemVisivel} 
-        transparent 
-        animationType="fade"
-        onRequestClose={() => setModalImagemVisivel(false)}
-      >
-        <View style={styles.imageModal}>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => setModalImagemVisivel(false)}
-          >
-            <Feather name="x" size={28} color="#fff" />
-          </TouchableOpacity>
-          
-          <Image
-            source={{ uri: imagemSelecionada }}
-            style={styles.fullImage}
-            resizeMode="contain"
-          />
-          
-          <TouchableOpacity
-            style={styles.downloadButton}
-            onPress={() => Sharing.shareAsync(imagemSelecionada)}
-          >
-            <Feather name="download" size={20} color="#fff" />
-            <Text style={styles.downloadText}>Salvar Imagem</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      {imagemSelecionada && (
+        <ImageViewing
+          images={[{ uri: imagemSelecionada }]}
+          imageIndex={0}
+          visible={modalImagemVisivel}
+          onRequestClose={() => setModalImagemVisivel(false)}
+          swipeToCloseEnabled={true}
+          backgroundColor="#000"
+        />
+      )}
 
       {/* Modal para atribuir motorista */}
       <Modal 
@@ -802,26 +841,20 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 50,
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    margin: 16,
-    borderRadius: 12,
-    elevation: 2,
-  },
-  searchIcon: {
-    marginRight: 10,
-  },
   searchInput: {
-    flex: 1,
+    backgroundColor: '#fff',
+    padding: 12,
+    paddingRight: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ccc',
     fontSize: 16,
-    color: COLORS.text,
   },
-  filterButton: {
-    padding: 5,
+  clearSearchButton: {
+    position: 'absolute',
+    right: 12,
+    top: '35%',
+    transform: [{ translateY: -10 }],
   },
   filtersPanel: {
     backgroundColor: '#fff',
@@ -835,22 +868,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
- dateButton: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  backgroundColor: COLORS.light,
-  padding: 12,
-  borderRadius: 10,
-  marginHorizontal: 3,
-  elevation: 2,
-},
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.light,
+    padding: 12,
+    borderRadius: 10,
+    marginHorizontal: 3,
+    elevation: 2,
+    flex: 1,
+  },
   dateButtonText: {
-  marginLeft: 6,
-  color: COLORS.text,
-  fontWeight: '500',
-  fontSize: 15,
-  
-},
+    marginLeft: 6,
+    color: COLORS.text,
+    fontWeight: '500',
+    fontSize: 15,
+  },
   pickerContainer: {
     flex: 1,
     backgroundColor: COLORS.light,
@@ -1013,37 +1046,6 @@ const styles = StyleSheet.create({
   actionText: {
     marginLeft: 6,
     fontWeight: '500',
-  },
-  imageModal: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
-  },
-  fullImage: {
-    width: '100%',
-    height: '70%',
-  },
-  downloadButton: {
-    position: 'absolute',
-    bottom: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 30,
-  },
-  downloadText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 8,
   },
   assignModal: {
     flex: 1,
