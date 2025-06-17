@@ -21,6 +21,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Animatable from 'react-native-animatable';
 import { RefreshControl } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
+import ImageView from "react-native-image-viewing";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function VendedorScreen() {
@@ -197,24 +198,14 @@ const abrirImagem = (path: string) => {
         <Text style={styles.motoristaNome}>{nome}</Text>
       </View>
       
-      <View style={styles.resumoGrid}>
-        <View style={styles.resumoItem}>
-          <Text style={styles.resumoLabel}>Notas</Text>
-          <Text style={styles.resumoValue}>{dados.total}</Text>
-        </View>
-        <View style={styles.resumoItem}>
-          <Text style={styles.resumoLabel}>Valor</Text>
-          <Text style={styles.resumoValue}>R$ {dados.valor.toFixed(2)}</Text>
-        </View>
-        <View style={styles.resumoItem}>
-          <Text style={styles.resumoLabel}>✅</Text>
-          <Text style={styles.resumoValue}>{dados.entregues}</Text>
-        </View>
-        <View style={styles.resumoItem}>
-          <Text style={styles.resumoLabel}>🔄</Text>
-          <Text style={styles.resumoValue}>{dados.pendentes}</Text>
-        </View>
-      </View>
+      <View style={styles.card}>
+  <Text style={styles.nota}>Nota: {item.nota}</Text>
+  <Text style={styles.cliente}>Cliente: {item.cliente_nome}</Text>
+  <Text style={styles.texto}>CNPJ: {item.cliente_cnpj}</Text>
+  <Text style={styles.texto}>Valor: R$ {item.valor_total}</Text>
+  <Text style={styles.cidade}>Cidade: {item.cidade}</Text>
+</View>
+
       
       <View style={styles.statusContainer}>
         {dados.pendentes > 0 ? (
@@ -529,32 +520,22 @@ const percentual = totalEntregas > 0
   </View>
 </Modal>
 
-<Modal visible={modalCanhotoVisible} transparent animationType="fade">
-  <View style={styles.modalContainer}>
-    <TouchableOpacity 
-      style={styles.modalBackground}
-      activeOpacity={1}
-      onPress={() => setModalCanhotoVisible(false)}
-    >
-      <View style={styles.modalContent}>
-        <TouchableOpacity 
-          style={styles.closeButton}
-          onPress={() => setModalCanhotoVisible(false)}
-        >
-          <MaterialIcons name="close" size={28} color="white" />
-        </TouchableOpacity>
-
-        {imagemSelecionada && (
-          <Image 
-            source={{ uri: imagemSelecionada }}
-            style={styles.fullImage}
-            resizeMode="contain"
-          />
-        )}
-      </View>
-    </TouchableOpacity>
-  </View>
-  </Modal>     
+<Modal 
+  visible={modalCanhotoVisible} 
+  transparent 
+  onRequestClose={() => setModalCanhotoVisible(false)}
+>
+  <ImageView
+    images={[{ uri: imagemSelecionada! }]}
+    imageIndex={0}
+    visible={modalCanhotoVisible}
+    onRequestClose={() => setModalCanhotoVisible(false)}
+    doubleTapToZoomEnabled={true}
+    pinchToZoomEnabled={true}
+    swipeToCloseEnabled={true}
+    backgroundColor="rgba(0,0,0,0.9)"
+  />
+</Modal>  
     </Animated.View>
 
 );
