@@ -22,6 +22,7 @@ const storage = multer.diskStorage({
   }
 });
 
+
 const upload = multer({ storage });
 
 const SECRET = 'seuSegredoJWT123';
@@ -80,6 +81,19 @@ app.post('/login', (req, res) => {
   });
 });
 
+// ✅ Rota para fornecer o link do Cloudflare Tunnel
+app.get('/link.json', (req, res) => {
+  const filePath = path.join(__dirname, 'link.json');
+  if (fs.existsSync(filePath)) {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.setHeader('Content-Type', 'application/json');
+    res.send(content);
+  } else {
+    res.status(404).json({ error: 'link.json não encontrado' });
+  }
+});
+
+
 app.post('/cadastro', (req, res) => {
   const { nome, senha, tipo } = req.body;
   if (!nome || !senha || !tipo) return res.status(400).json({ error: 'Preencha todos os campos' });
@@ -105,7 +119,20 @@ app.post('/upload-nota', async (req, res) => {
       return res.status(400).json({ error: 'Tipo de conteúdo inválido. Apenas JSON é aceito.' });
     }
 
-    const { nota, cliente, cnpj, dataEmissao, total, remetente } = req.body;
+    const {
+      nota,
+      cliente,
+      cnpj,
+      dataEmissao,
+      total,
+      remetente,
+      cidade,
+      endereco,
+      cep,
+      tipoFrete,
+      pesoBruto,
+      numeroPedido
+    } = req.body;
 
     if (!nota || !cliente || !dataEmissao || !total) {
       console.error('[UPLOAD-NOTA] Dados incompletos:', req.body);
@@ -123,6 +150,12 @@ app.post('/upload-nota', async (req, res) => {
       motorista: null,
       observacao: '',
       status: 'PENDENTE',
+      cidade,
+      endereco,
+      cep,
+      tipo_frete: tipoFrete,
+      peso_bruto: pesoBruto,
+      numero_pedido: numeroPedido
     };
 
     db.query('INSERT INTO entregas SET ?', entrega, (err, result) => {
@@ -131,19 +164,19 @@ app.post('/upload-nota', async (req, res) => {
         return res.status(500).json({ error: 'Erro ao salvar no banco', detalhe: err.message });
       }
 
-        if (result.affectedRows === 1 && result.insertId > 0) {
-          console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
-        } else {
-          console.log(`♻️ Nota ${nota} já existia, dados atualizados`);
-        }
-        return res.json({ success: true, nota });
+      if (result.affectedRows === 1 && result.insertId > 0) {
+        console.log(`✅ Nota ${nota} salva no banco com ID ${result.insertId}`);
+      } else {
+        console.log(`♻️ Nota ${nota} já existia, dados atualizados`);
       }
-    );
+      return res.json({ success: true, nota });
+    });
   } catch (e) {
     console.error('[UPLOAD-NOTA] Erro inesperado:', e);
     res.status(500).json({ error: 'Erro inesperado', detalhe: String(e) });
   }
 });
+
 
 
 
@@ -393,8 +426,8 @@ app.get('/relatorio-vendedor', autenticar, (req, res) => {
 
 // Atualize a rota de uploads para usar caminho absoluto
 app.get('/uploads/:filename', (req, res) => {
-  const filePath = path.join(__dirname, req.params.filename); // Corrigido aqui
-  
+  const filePath = path.join(__dirname, 'uploads', req.params.filename); // ✅ CORRIGIDO
+
   if (fs.existsSync(filePath)) {
     const tipoMime = mime.contentType(path.extname(filePath));
     if (tipoMime) res.setHeader('Content-Type', tipoMime);
@@ -403,6 +436,7 @@ app.get('/uploads/:filename', (req, res) => {
     res.status(404).json({ error: 'Arquivo não encontrado' });
   }
 });
+
 
 
 // Excluir canhoto (somente admin)
