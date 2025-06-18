@@ -21,7 +21,6 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Animatable from 'react-native-animatable';
 import { RefreshControl } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
-import ImageView from "react-native-image-viewing";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function VendedorScreen() {
@@ -198,14 +197,24 @@ const abrirImagem = (path: string) => {
         <Text style={styles.motoristaNome}>{nome}</Text>
       </View>
       
-      <View style={styles.card}>
-  <Text style={styles.nota}>Nota: {item.nota}</Text>
-  <Text style={styles.cliente}>Cliente: {item.cliente_nome}</Text>
-  <Text style={styles.texto}>CNPJ: {item.cliente_cnpj}</Text>
-  <Text style={styles.texto}>Valor: R$ {item.valor_total}</Text>
-  <Text style={styles.cidade}>Cidade: {item.cidade}</Text>
-</View>
-
+      <View style={styles.resumoGrid}>
+        <View style={styles.resumoItem}>
+          <Text style={styles.resumoLabel}>Notas</Text>
+          <Text style={styles.resumoValue}>{dados.total}</Text>
+        </View>
+        <View style={styles.resumoItem}>
+          <Text style={styles.resumoLabel}>Valor</Text>
+          <Text style={styles.resumoValue}>R$ {dados.valor.toFixed(2)}</Text>
+        </View>
+        <View style={styles.resumoItem}>
+          <Text style={styles.resumoLabel}>✅</Text>
+          <Text style={styles.resumoValue}>{dados.entregues}</Text>
+        </View>
+        <View style={styles.resumoItem}>
+          <Text style={styles.resumoLabel}>🔄</Text>
+          <Text style={styles.resumoValue}>{dados.pendentes}</Text>
+        </View>
+      </View>
       
       <View style={styles.statusContainer}>
         {dados.pendentes > 0 ? (
@@ -217,16 +226,13 @@ const abrirImagem = (path: string) => {
     </Animatable.View>
   );
 
-  // Renderizar item de entrega
   const renderEntregaItem = ({ item }: any) => {
-  // MONTA O NOME DO MOTORISTA NO CONTEXTO CORRETO
   const nomeMotorista = 
-  (item.motorista_nome && item.motorista_nome.trim())
-    ? item.motorista_nome.trim()
-    : (item.nome_motorista && item.nome_motorista.trim())
-      ? item.nome_motorista.trim()
-      : (item.motorista || 'Não atribuído');
-
+    (item.motorista_nome && item.motorista_nome.trim())
+      ? item.motorista_nome.trim()
+      : (item.nome_motorista && item.nome_motorista.trim())
+        ? item.nome_motorista.trim()
+        : (item.motorista || 'Não atribuído');
 
   return (
     <Animatable.View 
@@ -234,25 +240,39 @@ const abrirImagem = (path: string) => {
       duration={500}
       style={styles.entregaCard}
     >
-      <View style={styles.entregaHeader}>
-        <Text style={styles.entregaNota}>📦 Nota: {item.nota}</Text>
-        <View style={[
-          styles.statusBadge, 
-          item.status === 'ENTREGUE' ? styles.badgeSuccess : styles.badgeWarning
-        ]}>
-          <Text style={styles.statusText}>{item.status}</Text>
-        </View>
-      </View>
-      
-      <Text style={styles.entregaCliente}>{item.cliente_nome}</Text>
-      
+      {/* 🟦 Nota */}
+      <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e3d8f' }}>
+        📦 Nota: {item.nota}
+      </Text>
+
+      {/* 👤 Cliente */}
+      <Text style={{ fontSize: 15, fontWeight: '700', color: '#333', marginTop: 2 }}>
+        👤 Cliente: {item.cliente_nome}
+      </Text>
+
+      {/* 🔢 CNPJ */}
+      <Text style={{ fontSize: 14, color: '#777' }}>
+        🔢 CNPJ: {item.cliente_cnpj}
+      </Text>
+
+      {/* 💰 Valor e 👷 Motorista */}
       <View style={styles.entregaInfo}>
-        <Text style={styles.entregaValor}>💰 R$ {parseFloat(item.valor_total).toFixed(2)}</Text>
-        <Text style={styles.entregaMotorista}>
-          <Ionicons name="person" size={14} /> {nomeMotorista}
+        <Text style={{ fontSize: 15, color: '#27ae60', fontWeight: '600' }}>
+          💰 Valor: R$ {parseFloat(item.valor_total).toFixed(2)}
+        </Text>
+        <Text style={{ fontSize: 14, color: '#666' }}>
+          👷 {nomeMotorista}
         </Text>
       </View>
-      
+
+      {/* 📍 Cidade */}
+      {item.cidade && (
+        <Text style={{ fontSize: 14, color: '#3498db', fontWeight: '600' }}>
+          📍 Cidade: {item.cidade}
+        </Text>
+      )}
+
+      {/* 📄 Canhoto */}
       {item.canhoto_path ? (
         <TouchableOpacity 
           style={styles.canhotoButton}
@@ -270,6 +290,7 @@ const abrirImagem = (path: string) => {
     </Animatable.View>
   );
 };
+
 
 
   // Renderizar grupo de motoristas
@@ -520,25 +541,34 @@ const percentual = totalEntregas > 0
   </View>
 </Modal>
 
-<Modal 
-  visible={modalCanhotoVisible} 
-  transparent 
-  onRequestClose={() => setModalCanhotoVisible(false)}
->
-  <ImageView
-    images={[{ uri: imagemSelecionada! }]}
-    imageIndex={0}
-    visible={modalCanhotoVisible}
-    onRequestClose={() => setModalCanhotoVisible(false)}
-    doubleTapToZoomEnabled={true}
-    pinchToZoomEnabled={true}
-    swipeToCloseEnabled={true}
-    backgroundColor="rgba(0,0,0,0.9)"
-  />
-</Modal>  
-    </Animated.View>
+<Modal visible={modalCanhotoVisible} transparent animationType="fade">
+  <View style={styles.modalContainer}>
+    <TouchableOpacity 
+      style={styles.modalBackground}
+      activeOpacity={1}
+      onPress={() => setModalCanhotoVisible(false)}
+    >
+      <View style={styles.modalContent}>
+        <TouchableOpacity 
+          style={styles.closeButton}
+          onPress={() => setModalCanhotoVisible(false)}
+        >
+          <MaterialIcons name="close" size={28} color="white" />
+        </TouchableOpacity>
 
-);
+        {imagemSelecionada && (
+          <Image 
+            source={{ uri: imagemSelecionada }}
+            style={styles.fullImage}
+            resizeMode="contain"
+          />
+        )}
+      </View>
+    </TouchableOpacity>
+  </View>
+  </Modal>     
+  </Animated.View>
+  );
 }
 
 
@@ -953,6 +983,35 @@ legendText: {
   color: '#2c3e50',
 },
 
+
+entregaNotaDestaque: {
+  fontSize: 18,
+  fontWeight: '800',
+  color: '#1e3a8a',
+  marginBottom: 6,
+},
+entregaClienteDestaque: {
+  fontSize: 16,
+  fontWeight: '700',
+  color: '#2c3e50',
+},
+entregaInfoSecundaria: {
+  fontSize: 14,
+  color: '#444',
+  marginTop: 2,
+},
+entregaValorSecundaria: {
+  fontSize: 15,
+  fontWeight: '600',
+  color: '#27ae60',
+  marginTop: 4,
+},
+entregaCidadeSecundaria: {
+  fontSize: 14,
+  fontWeight: '500',
+  color: '#1976d2',
+  marginTop: 2,
+},
 
 
 });

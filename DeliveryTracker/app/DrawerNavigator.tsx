@@ -6,7 +6,8 @@ import CentralControleScreen from './CentralControleScreen';
 import MinhasEntregasScreen from './MinhasEntregasScreen';
 import VendedorScreen from './VendedorScreen';
 import CadastroUsuarioScreen from './CadastroUsuarioScreen';
-import BuscaNotasScreen from './BuscarNotasScreen'; // <- Certifique-se que está correto o nome do arquivo
+import BuscaNotasScreen from './BuscarNotasScreen';
+import ConfiguracaoScreen from './ConfiguracaoScreen'; // ✅ NOVO
 import { ActivityIndicator, View, Text } from 'react-native';
 import CustomDrawerContent from './CustomDrawerContent';
 import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -95,6 +96,9 @@ export default function DrawerNavigator({ navigation }) {
           if (route.name === 'Buscar Notas') {
             return <MaterialIcons name="search" size={24} color={iconColor} style={iconStyle} />;
           }
+          if (route.name === '🔧 Configuração de IP') {
+            return <Ionicons name="settings" size={22} color={iconColor} style={iconStyle} />;
+          }
         },
         drawerActiveBackgroundColor: color + '15',
         drawerActiveTintColor: color,
@@ -122,7 +126,8 @@ export default function DrawerNavigator({ navigation }) {
           <Drawer.Screen name="Central de Controle" component={CentralControleScreen} />
           <Drawer.Screen name="Cadastro de Usuário" component={CadastroUsuarioScreen} />
           <Drawer.Screen name="Buscar Notas" component={BuscaNotasScreen} />
-           <Drawer.Screen name="Painel do Vendedor" component={VendedorScreen} />
+          <Drawer.Screen name="Painel do Vendedor" component={VendedorScreen} />
+          <Drawer.Screen name="🔧 Configuração de IP" component={ConfiguracaoScreen} />
         </>
       )}
 

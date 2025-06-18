@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import ProtectedRoute from './ProtectedRoute';
 import { API } from './config';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { 
@@ -330,34 +331,53 @@ export default function CentralControleScreen() {
     }
   };
 
-  // ✔️ Marcar entrega como concluída
-  const marcarComoEntregue = async (id: number) => {
-    try {
-      const usuario = await AsyncStorage.getItem('usuario');
-      if (!usuario) throw new Error('Usuário não autenticado');
-      
-      const token = JSON.parse(usuario).token;
-      if (!token) throw new Error('Token não encontrado');
+  // ✔️ Marcar entrega como concluída (com verificação de canhoto)
+const marcarComoEntregue = async (entrega: any) => {
+  if (entrega.status !== 'PENDENTE') return;
 
-      const response = await fetch(`${API.ENTREGAS}/concluir/${id}`, {
-        method: 'PUT',
-        headers: { Authorization: token },
-      });
+  if (!entrega.canhoto_path) {
+    Alert.alert(
+      'Sem Canhoto',
+      'Essa entrega ainda não possui canhoto. Tem certeza que deseja marcar como concluída?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Confirmar', onPress: () => concluirEntrega(entrega.id) }
+      ]
+    );
+  } else {
+    concluirEntrega(entrega.id);
+  }
+};
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Falha ao atualizar entrega');
-      }
-      
-      // Atualização otimista
-      setEntregas(prev => prev.map(e => 
-        e.id === id ? { ...e, status: 'CONCLUIDA' } : e
-      ));
-      Alert.alert('✅ Sucesso', 'Entrega marcada como concluída');
-    } catch (error: any) {
-      Alert.alert('❌ Erro', error.message || 'Falha ao atualizar entrega');
+// 🧠 Executa a requisição final (PUT)
+const concluirEntrega = async (id: number) => {
+  try {
+    const usuario = await AsyncStorage.getItem('usuario');
+    if (!usuario) throw new Error('Usuário não autenticado');
+    
+    const token = JSON.parse(usuario).token;
+    if (!token) throw new Error('Token não encontrado');
+
+    const response = await fetch(`${API.ENTREGAS}/concluir/${id}`, {
+      method: 'PUT',
+      headers: { Authorization: token },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Falha ao atualizar entrega');
     }
-  }; 
+
+    setEntregas(prev =>
+      prev.map(e => e.id === id ? { ...e, status: 'CONCLUIDA' } : e)
+    );
+
+    Alert.alert('✅ Sucesso', 'Entrega marcada como concluída');
+  } catch (error: any) {
+    Alert.alert('❌ Erro', error.message || 'Falha ao atualizar entrega');
+  }
+};
+
 
   // 📸 Reenviar canhoto com pré-visualização
   const reenviarCanhoto = async (entregaId: number) => {
@@ -430,107 +450,111 @@ export default function CentralControleScreen() {
     }
   };
 
-  // 🎨 Componente de card de entrega
-  const EntregaCard = ({ entrega }: { entrega: any }) => (
-    <View style={[
-      styles.card,
-      entrega.status === 'CONCLUIDA' && styles.cardConcluida,
-      entrega.status === 'PENDENTE' && styles.cardPendente,
-      entrega.status === 'CANCELADA' && styles.cardCancelada
-    ]}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{entrega.cliente_nome}</Text>
-        <View style={[
-          styles.statusBadge,
-          entrega.status === 'CONCLUIDA' && styles.badgeSuccess,
-          entrega.status === 'PENDENTE' && styles.badgeWarning,
-          entrega.status === 'CANCELADA' && styles.badgeDanger
-        ]}>
-          <Text style={styles.badgeText}>{entrega.status}</Text>
-        </View>
-      </View>
-      
-      <View style={styles.cardBody}>
-        <View style={styles.infoRow}>
-          <Feather name="file-text" size={16} color={COLORS.text} />
-          <Text style={styles.infoText}>Nota: {entrega.nota}</Text>
-        </View>
-        
-        <View style={styles.infoRow}>
-          <Feather name="calendar" size={16} color={COLORS.text} />
-          <Text style={styles.infoText}>
-            {new Date(entrega.data_emissao).toLocaleDateString('pt-BR')}
-          </Text>
-        </View>
-        
-        <View style={styles.infoRow}>
-          <Feather name="dollar-sign" size={16} color={COLORS.text} />
-          <Text style={styles.infoText}>
-            R$ {parseFloat(entrega.valor_total).toFixed(2)}
-          </Text>
-        </View>
-        
-        <View style={styles.infoRow}>
-          <Ionicons name="person" size={16} color={COLORS.text} />
-          <Text style={styles.infoText}>
-            {entrega.nome_motorista || 'Não atribuído'}
-          </Text>
-        </View>
-      </View>
-      
-      {entrega.canhoto_path ? (
-        <TouchableOpacity 
-          style={styles.canhotoButton}
-          onPress={() => {
-            const url = `${API.BASE}/uploads/${entrega.canhoto_path.split('/').pop()}`;
-            setImagemSelecionada(url);
-            setModalImagemVisivel(true);
-          }}
-        >
-          <Feather name="file" size={16} color={COLORS.primary} />
-          <Text style={styles.canhotoText}>Ver Canhoto</Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.canhotoMissing}>
-          <Feather name="alert-circle" size={16} color={COLORS.warning} />
-          <Text style={styles.canhotoMissingText}>Canhoto não disponível</Text>
-        </View>
-      )}
-      
-      <View style={styles.cardFooter}>
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => { 
-            setEntregaSelecionada(entrega); 
-            setModalAtribuirVisivel(true); 
-          }}
-        >
-          <Ionicons name="person-add" size={16} color={COLORS.primary} />
-          <Text style={styles.actionText}>Atribuir</Text>
-        </TouchableOpacity>
-
-        {usuarioTipo === 'admin' && (
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => reenviarCanhoto(entrega.id)}
-          >
-            <Ionicons name="camera" size={16} color={COLORS.accent} />
-            <Text style={styles.actionText}>Canhoto</Text>
-          </TouchableOpacity>
-        )}
-
-        {entrega.status === 'PENDENTE' && (
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => marcarComoEntregue(entrega.id)}
-          >
-            <Feather name="check-circle" size={16} color={COLORS.success} />
-            <Text style={styles.actionText}>Concluir</Text>
-          </TouchableOpacity>
-        )}
+const EntregaCard = ({ entrega }: { entrega: any }) => (
+  <View style={[
+    styles.card,
+    entrega.status === 'CONCLUIDA' && styles.cardConcluida,
+    entrega.status === 'PENDENTE' && styles.cardPendente,
+    entrega.status === 'CANCELADA' && styles.cardCancelada
+  ]}>
+    <View style={styles.cardHeader}>
+      <Text style={styles.cardTitle}>{entrega.cliente_nome}</Text>
+      <View style={[
+        styles.statusBadge,
+        entrega.status === 'CONCLUIDA' && styles.badgeSuccess,
+        entrega.status === 'PENDENTE' && styles.badgeWarning,
+        entrega.status === 'CANCELADA' && styles.badgeDanger
+      ]}>
+        <Text style={styles.badgeText}>{entrega.status}</Text>
       </View>
     </View>
-  );
+
+    <View style={styles.cardContent}>
+      <View style={styles.row}>
+        <MaterialCommunityIcons name="file-document-outline" size={18} color={COLORS.text} />
+        <Text style={styles.infoText}>Nota: {entrega.nota}</Text>
+      </View>
+
+      <View style={styles.row}>
+        <MaterialCommunityIcons name="calendar-month-outline" size={18} color={COLORS.text} />
+        <Text style={styles.infoText}>
+          {new Date(entrega.data_emissao).toLocaleDateString('pt-BR')}
+        </Text>
+      </View>
+
+      <View style={styles.row}>
+        <MaterialCommunityIcons name="cash-multiple" size={18} color={COLORS.text} />
+        <Text style={styles.infoText}>R$ {parseFloat(entrega.valor_total).toFixed(2)}</Text>
+      </View>
+
+      <View style={styles.row}>
+        <MaterialCommunityIcons name="map-marker" size={18} color={COLORS.text} />
+        <Text style={styles.infoText}>{entrega.cidade || '---'}</Text>
+      </View>
+
+      <View style={styles.row}>
+        <MaterialCommunityIcons name="truck-delivery-outline" size={18} color={COLORS.text} />
+        <Text style={styles.infoText}>{entrega.nome_motorista || 'Não atribuído'}</Text>
+      </View>
+    </View>
+
+    {/* Canhoto */}
+    {entrega.canhoto_path ? (
+      <TouchableOpacity 
+        style={styles.canhotoButton}
+        onPress={() => {
+          const url = `${API.BASE}/uploads/${entrega.canhoto_path.split('/').pop()}`;
+          setImagemSelecionada(url);
+          setModalImagemVisivel(true);
+        }}
+      >
+        <MaterialCommunityIcons name="file-image" size={18} color={COLORS.primary} />
+        <Text style={styles.canhotoText}>Ver Canhoto</Text>
+      </TouchableOpacity>
+    ) : (
+      <View style={styles.canhotoMissing}>
+        <MaterialCommunityIcons name="alert-circle-outline" size={18} color={COLORS.warning} />
+        <Text style={styles.canhotoMissingText}>Canhoto não disponível</Text>
+      </View>
+    )}
+
+    {/* Botões de ação */}
+    <View style={styles.cardFooter}>
+      <TouchableOpacity 
+        style={styles.actionButton}
+        onPress={() => { 
+          setEntregaSelecionada(entrega); 
+          setModalAtribuirVisivel(true); 
+        }}
+      >
+        <MaterialCommunityIcons name="account-switch-outline" size={18} color={COLORS.primary} />
+        <Text style={styles.actionText}>Atribuir</Text>
+      </TouchableOpacity>
+
+      {usuarioTipo === 'admin' && (
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => reenviarCanhoto(entrega.id)}
+        >
+          <MaterialCommunityIcons name="camera" size={18} color={COLORS.accent} />
+          <Text style={styles.actionText}>Canhoto</Text>
+        </TouchableOpacity>
+      )}
+
+      {entrega.status === 'PENDENTE' && (
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => marcarComoEntregue(entrega)}
+
+        >
+          <MaterialCommunityIcons name="check-circle-outline" size={18} color={COLORS.success} />
+          <Text style={styles.actionText}>Concluir</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  </View>
+);
+
 
   // 🔎 Filtra as entregas pelo status selecionado
   const entregasFiltradas = statusSelecionado === 'TODOS'
@@ -1114,4 +1138,23 @@ const styles = StyleSheet.create({
   assignButtonText: {
     color: '#fff',
   },
+
+  cardContent: {
+  marginBottom: 12,
+},
+row: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 6,
+},
+clienteNome: {
+  fontSize: 16,
+  fontWeight: 'bold',
+  color: COLORS.primary,
+  marginBottom: 6,
+},
+
 });
+
+  
+  
