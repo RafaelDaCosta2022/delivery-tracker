@@ -8,9 +8,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { ScrollView } from 'react-native';
+import { useAuth } from './ProtectedRoute';
 import { MaterialIcons, Ionicons, FontAwesome5,FontAwesome } from '@expo/vector-icons';
 import ImageViewing from 'react-native-image-viewing'; // ✅ Substituto moderno
 export default function BuscarNotasScreen() {
+  const { authHeader, usuario } = useAuth();
+
+if (!usuario) {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <ActivityIndicator size="large" color="#000" />
+      <Text>Carregando usuário...</Text>
+    </View>
+  );
+}
   const [busca, setBusca] = useState('');
   const [notas, setNotas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(false);
@@ -21,24 +32,58 @@ export default function BuscarNotasScreen() {
   const [baixandoPDF, setBaixandoPDF] = useState(false);
   const [baixandoXML, setBaixandoXML] = useState(false);
 
-  const buscarNotas = async () => {
-    if (!busca || busca.length < 1) {
-      Alert.alert('Digite pelo menos 1 caractere');
-      return;
+  
+
+const buscarNotas = async () => {
+  if (!busca || busca.length < 1) {
+    Alert.alert('Digite pelo menos 1 caractere');
+    return;
+  }
+  setCarregando(true);
+  try {
+    const rawHeaders = await authHeader();
+
+    if (!rawHeaders.Authorization) {
+      throw new Error('Token de autenticação não encontrado');
     }
-    setCarregando(true);
-    try {
-      const usuario = await AsyncStorage.getItem('usuario');
-      const { token } = JSON.parse(usuario || '{}');
-      const url = `${API.ENTREGAS}?busca=${encodeURIComponent(busca)}`;
-      const res = await fetch(url, { headers: { Authorization: token } });
-      const json = await res.json();
-      setNotas(json || []);
-    } catch {
-      Alert.alert('Erro ao buscar notas');
+
+    const tokenSanitizado = rawHeaders.Authorization
+      .replace('Bearer', '')
+      .trim()
+      .replace(/\s+/g, '');
+
+    const tokenParts = tokenSanitizado.split('.');
+    if (tokenParts.length !== 3) {
+      throw new Error('Estrutura do token inválida');
     }
+
+    const headers = {
+      ...rawHeaders,
+      Authorization: `Bearer ${tokenSanitizado}`,
+    };
+
+    const url = `${API.BUSCAR_NOTAS()}?busca=${encodeURIComponent(busca)}`;
+    const res = await fetch(url, { headers });
+
+    if (!res.ok) {
+      const textoErro = await res.text();
+      throw new Error(`Erro ao buscar notas: ${textoErro}`);
+    }
+
+    const json = await res.json();
+    setNotas(json || []);
+  } catch (err: any) {
+    console.error('Erro ao buscar notas:', err);
+    let msg = err?.message || 'Erro inesperado';
+    if (msg.includes('Token')) msg = 'Problema de autenticação. Faça login novamente.';
+    Alert.alert('Erro', msg);
+  } finally {
     setCarregando(false);
-  };
+  }
+};
+
+
+
 
   const abrirNota = (nota: any) => {
     setNotaSelecionada(nota);

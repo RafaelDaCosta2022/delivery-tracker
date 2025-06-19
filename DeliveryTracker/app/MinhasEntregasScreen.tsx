@@ -19,6 +19,7 @@ import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { API } from './config';
+import { useAuth } from './ProtectedRoute';
 import { Ionicons } from '@expo/vector-icons';
 
 // Paleta de cores moderna
@@ -74,24 +75,36 @@ export default function MinhasEntregasScreen() {
   const carregarEntregas = async () => {
   setRefreshing(true);
   try {
-    const usuario = await AsyncStorage.getItem('usuario');
-    const { token } = JSON.parse(usuario || '{}');
+    const headers = await authHeader();
 
-    if (!token) {
+    if (!headers.Authorization) {
       throw new Error('Token de autenticação não encontrado');
     }
 
-    const response = await fetch(API.MINHAS_ENTREGAS(), { // <- CORRETO AGORA
-      headers: { Authorization: token },
-    });
+    const tokenSanitizado = headers.Authorization
+      .replace('Bearer', '')
+      .trim()
+      .replace(/\s+/g, '');
 
-    console.log('Resposta da API:', response.status);
-    
+    const tokenParts = tokenSanitizado.split('.');
+    if (tokenParts.length !== 3) {
+      throw new Error('Estrutura do token inválida');
+    }
+
+    const headersCorrigidos = {
+      ...headers,
+      Authorization: `Bearer ${tokenSanitizado}`
+    };
+
+    const response = await fetch(API.MINHAS_ENTREGAS(), { headers: headersCorrigidos });
+
     if (!response.ok) {
-      throw new Error(`Erro na API: ${response.status}`);
+      const erroTexto = await response.text();
+      throw new Error(`Erro na API: ${erroTexto}`);
     }
 
     const data = await response.json();
+
     const agora = new Date();
     const entregasFiltradas = data.filter((e: any) => {
       if (e.status === 'PENDENTE') return true;
@@ -114,35 +127,37 @@ export default function MinhasEntregasScreen() {
 };
 
 
+
+
   const enviarCanhoto = async (entregaId: number) => {
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        aspect: [4, 3],
-      });
+  try {
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      aspect: [4, 3],
+    });
 
-      if (result.canceled) return;
+    if (result.canceled) return;
 
-      const { uri } = result.assets[0];
-      const usuario = await AsyncStorage.getItem('usuario');
-      const token = JSON.parse(usuario || '{}').token;
+    const { uri } = result.assets[0];
 
-      // Se offline, salvar localmente
-      if (estaOffline) {
-        await salvarOffline(entregaId, uri);
-        Alert.alert('Offline', 'Canhoto salvo localmente. Será enviado automaticamente quando houver conexão');
-        return;
-      }
-
-      // Se online, enviar diretamente
-      await enviarCanhotoOnline(entregaId, uri, token);
-      
-    } catch (err) {
-      console.error('Erro ao enviar canhoto:', err);
-      Alert.alert('Erro', 'Falha ao enviar canhoto. Tente novamente');
+    // Se offline, salvar localmente
+    if (estaOffline) {
+      await salvarOffline(entregaId, uri);
+      Alert.alert('Offline', 'Canhoto salvo localmente. Será enviado automaticamente quando houver conexão');
+      return;
     }
-  };
+
+    // Se online, usar cabeçalho do contexto
+    const headers = await authHeader();
+    await enviarCanhotoOnline(entregaId, uri, headers.Authorization);
+
+  } catch (err) {
+    console.error('Erro ao enviar canhoto:', err);
+    Alert.alert('Erro', 'Falha ao enviar canhoto. Tente novamente');
+  }
+};
+
 
   const enviarCanhotoOnline = async (entregaId: number, uri: string, token: string) => {
     const formData = new FormData();
@@ -194,70 +209,68 @@ export default function MinhasEntregasScreen() {
   };
 
   const tentarReenviarPendentes = async () => {
-    if (estaOffline) return;
-    
-    setReenviando(true);
-    
-    try {
-      const pendentes = await AsyncStorage.getItem('canhotosPendentes');
-      if (!pendentes) return;
+  if (estaOffline) return;
 
-      const lista = JSON.parse(pendentes);
-      const usuario = await AsyncStorage.getItem('usuario');
-      const token = JSON.parse(usuario || '{}').token;
-      const enviados = [];
-      const falhas = [];
+  setReenviando(true);
 
-      for (const item of lista) {
-        if (!item.imagemBase64) continue;
+  try {
+    const pendentes = await AsyncStorage.getItem('canhotosPendentes');
+    if (!pendentes) return;
 
-        try {
-          const fileUri = `${FileSystem.cacheDirectory}${item.nome}`;
-          
-          await FileSystem.writeAsStringAsync(fileUri, item.imagemBase64, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
+    const lista = JSON.parse(pendentes);
+    const headers = await authHeader(); // 🔄 Aqui está a mudança
+    const enviados = [];
+    const falhas = [];
 
-          const formData = new FormData();
-          formData.append('file', {
-            uri: fileUri,
-            name: item.nome,
-            type: item.tipo,
-          } as any);
+    for (const item of lista) {
+      if (!item.imagemBase64) continue;
 
-          const res = await fetch(`${API.CANHOTO}/${item.entregaId}`, {
-            method: 'POST',
-            body: formData,
-            headers: {
-              Authorization: token,
-            },
-          });
+      try {
+        const fileUri = `${FileSystem.cacheDirectory}${item.nome}`;
 
-          const resposta = await res.json();
-          
-          if (resposta.success) {
-            enviados.push(item);
-            await FileSystem.deleteAsync(fileUri);
-          } else {
-            falhas.push(item);
-          }
-        } catch (err) {
+        await FileSystem.writeAsStringAsync(fileUri, item.imagemBase64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const formData = new FormData();
+        formData.append('file', {
+          uri: fileUri,
+          name: item.nome,
+          type: item.tipo,
+        } as any);
+
+        const res = await fetch(`${API.CANHOTO}/${item.entregaId}`, {
+          method: 'POST',
+          body: formData,
+          headers,
+        });
+
+        const resposta = await res.json();
+
+        if (resposta.success) {
+          enviados.push(item);
+          await FileSystem.deleteAsync(fileUri);
+        } else {
           falhas.push(item);
         }
+      } catch (err) {
+        falhas.push(item);
       }
-
-      await AsyncStorage.setItem('canhotosPendentes', JSON.stringify(falhas));
-      
-      if (enviados.length > 0) {
-        Alert.alert('Sucesso', `${enviados.length} canhotos pendentes enviados!`);
-        carregarEntregas();
-      }
-    } catch (err) {
-      console.error('Erro no reenvio:', err);
-    } finally {
-      setReenviando(false);
     }
-  };
+
+    await AsyncStorage.setItem('canhotosPendentes', JSON.stringify(falhas));
+
+    if (enviados.length > 0) {
+      Alert.alert('Sucesso', `${enviados.length} canhotos pendentes enviados!`);
+      carregarEntregas();
+    }
+  } catch (err) {
+    console.error('Erro no reenvio:', err);
+  } finally {
+    setReenviando(false);
+  }
+};
+
 
   const confirmarEnvio = (entrega: any) => {
     setEntregaSelecionada(entrega);

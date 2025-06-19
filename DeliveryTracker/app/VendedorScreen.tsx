@@ -49,7 +49,7 @@ export default function VendedorScreen() {
 
 useEffect(() => {
   carregarRelatorio();
-}, [periodo, filtroData]);
+}, [formattedDate, periodo]);
 
 const handleRefresh = () => {
   setRefreshing(true);
@@ -66,24 +66,45 @@ const handleRefresh = () => {
  const carregarRelatorio = async () => {
   setCarregando(true);
   try {
-    const usuario = await AsyncStorage.getItem('usuario');
-    const { token } = JSON.parse(usuario || '{}');
+    // 🔒 1. Obter e validar o token
+    const headers = await authHeader();
 
+    if (!headers.Authorization) {
+      throw new Error('Token de autenticação não encontrado');
+    }
+
+    const tokenSanitizado = headers.Authorization
+      .replace('Bearer', '')
+      .trim()
+      .replace(/\s+/g, '');
+
+    const tokenParts = tokenSanitizado.split('.');
+    if (tokenParts.length !== 3) {
+      throw new Error('Estrutura do token inválida');
+    }
+
+    const headersCorrigidos = {
+      ...headers,
+      Authorization: `Bearer ${tokenSanitizado}`
+    };
+
+    // 📡 2. Fazer a requisição com token validado
     const url = `${API.ENTREGAS}?data=${formattedDate}&periodo=${periodo}`;
-const res = await fetch(url, {
-  headers: { Authorization: token },
-});
+    const res = await fetch(url, { headers: headersCorrigidos });
 
-    const json = await res.json();
+    if (!res.ok) throw new Error('Erro ao buscar entregas');
 
-    setRelatorio(json || []);
+    const data = await res.json();
+    setRelatorio(data || []);
   } catch (err) {
-    alert('Erro ao buscar entregas');
+    console.error('Erro ao carregar relatório:', err);
+    Alert.alert('Erro', 'Não foi possível carregar os dados. Faça login novamente.');
   } finally {
     setCarregando(false);
-    setRefreshing(false);
   }
 };
+
+
 
 // 👇 FILTRO igual a Home: só mostra o que tem motorista, pendente ou entregue há no máximo 12h!
   const entregasValidas = useMemo(() => {

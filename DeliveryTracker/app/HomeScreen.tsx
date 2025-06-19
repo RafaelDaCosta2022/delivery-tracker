@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { API } from './config';
+import { API, authHeader } from './config';
 import moment from 'moment';
 import 'moment/locale/pt-br';
 
@@ -111,10 +111,10 @@ const carregarResumo = async () => {
       navigation.replace('Login');
       return;
     }
+      const res = await fetch(API.ENTREGAS(), {
+  headers: await authHeader(),
+});
 
-    const res = await fetch(API.ENTREGAS, {
-      headers: { Authorization: token },
-    });
 
     if (!res.ok) {
       const msg = await res.text();

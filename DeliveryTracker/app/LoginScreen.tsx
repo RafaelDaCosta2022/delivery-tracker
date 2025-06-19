@@ -64,80 +64,93 @@ export default function LoginScreen() {
   }, []);
 
   const logar = async () => {
-    if (!nome.trim() || !senha.trim()) {
-      Alert.alert('Campos obrigatórios', 'Preencha todos os campos para continuar');
-      return;
-    }
+  if (!nome.trim() || !senha.trim()) {
+    Alert.alert('Campos obrigatórios', 'Preencha todos os campos para continuar');
+    return;
+  }
 
-    setCarregando(true);
+  setCarregando(true);
 
-    try {
-      const response = await fetch(API.LOGIN, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome, senha }),
-      });
+  try {
+    const url = await API.LOGIN(); // <- pega o IP dinâmico salvo
+const response = await fetch(url, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ nome, senha }),
+});
 
-      const data = await response.json();
 
-      if (!response.ok) {
-        // Animação de erro
-        Animated.sequence([
-          Animated.timing(fadeAnim, {
-            toValue: 0.9,
-            duration: 100,
-            useNativeDriver: true
-          }),
-          Animated.spring(fadeAnim, {
-            toValue: 1,
-            friction: 3,
-            useNativeDriver: true
-          })
-        ]).start();
-        
-        Alert.alert('Erro de login', data.error || 'Credenciais inválidas');
-      } else {
-        // Salvar credenciais se o usuário escolheu lembrar
-        if (lembrarUsuario) {
-          await AsyncStorage.setItem('credenciais', JSON.stringify({
-            nome,
-            senha,
-            lembrar: lembrarUsuario
-          }));
-        } else {
-          await AsyncStorage.removeItem('credenciais');
-        }
+    const data = await response.json();
 
-        // Salvar dados do usuário (sem senha) para uso no app
-        await AsyncStorage.setItem('usuario', JSON.stringify({
-          token: data.token,
-          nome: data.nome,
-          tipo: data.tipo
+    if (!response.ok) {
+      // Animação de erro
+      Animated.sequence([
+        Animated.timing(fadeAnim, {
+          toValue: 0.9,
+          duration: 100,
+          useNativeDriver: true
+        }),
+        Animated.spring(fadeAnim, {
+          toValue: 1,
+          friction: 3,
+          useNativeDriver: true
+        })
+      ]).start();
+
+      Alert.alert('Erro de login', data.error || 'Credenciais inválidas');
+    } else {
+      // Salvar credenciais se o usuário escolheu lembrar
+      if (lembrarUsuario) {
+        await AsyncStorage.setItem('credenciais', JSON.stringify({
+          nome,
+          senha,
+          lembrar: lembrarUsuario
         }));
-
-        if (['motorista', 'vendedor', 'admin'].includes(data.tipo)) {
-          // Animação de sucesso antes de navegar
-          Animated.timing(fadeAnim, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: true
-          }).start(() => navigation.replace('App'));
-        } else {
-          Alert.alert('Acesso não permitido', 'Seu perfil não tem acesso ao sistema');
-        }
+      } else {
+        await AsyncStorage.removeItem('credenciais');
       }
-    } catch (err) {
-      Alert.alert('Erro de conexão', 'Não foi possível conectar ao servidor');
-    } finally {
-      setCarregando(false);
+
+       console.log('Login OK:', data);
+
+
+      // Salvar dados do usuário (sem senha) para uso no app
+      const cleanToken = (data.token || '').trim().replace(/\s+/g, '');
+await AsyncStorage.setItem('usuario', JSON.stringify({
+  nome: data.nome,
+  tipo: data.tipo,
+  token: cleanToken
+}));
+
+      if (['motorista', 'vendedor', 'admin'].includes(data.tipo)) {
+        // Animação de sucesso antes de navegar
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true
+        }).start(() => {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'App' }]
+          });
+        });
+            } else {
+        Alert.alert('Acesso não permitido', 'Seu perfil não tem acesso ao sistema');
+      }
     }
-  };
+  } catch (err) {
+    Alert.alert('Erro de conexão', 'Não foi possível conectar ao servidor');
+  } finally {
+    setCarregando(false);
+  }
+}; // <-- ESSE ENCERRAMENTO estava faltando
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      {/* resto do seu JSX */}
+
       <Animated.View style={[styles.innerContainer, { opacity: fadeAnim }]}>
         {/* Cabeçalho com logo animada */}
         <Animated.View style={[styles.header, { transform: [{ scale: logoScale }] }]}>
