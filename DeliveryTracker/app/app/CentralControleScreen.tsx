@@ -1,26 +1,20 @@
-import { Feather, Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  View, Text, StyleSheet, ActivityIndicator, TouchableOpacity,
+  TextInput, ScrollView, RefreshControl, Alert, Modal
+} from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
-import { useFocusEffect } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
+import { MaterialIcons, Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert, Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import ImageViewing from 'react-native-image-viewing';
+import { useFocusEffect } from '@react-navigation/native';
 
-import { useAuth } from './AuthContext';
-import { API } from './config';
+import { API, authHeader } from './config';
 import ProtectedRoute from './ProtectedRoute';
+import { useAuth } from './ProtectedRoute';
 
 const COLORS = {
   primary: '#4361ee',
@@ -45,8 +39,6 @@ const STATUS_OPTIONS = [
 ];
 
 const CentralControleScreen = () => {
-  const { authHeader } = useAuth();
-  const { logout } = useAuth();
   const { usuario } = useAuth();
   const [state, setState] = useState({
     entregas: [] as any[],
@@ -77,8 +69,15 @@ const CentralControleScreen = () => {
   // Atualiza apenas as propriedades necessárias
   const setStatePartial = (partial: any) => setState(prev => ({ ...prev, ...partial }));
 
- // Função carregamento
-const carregarDados = async () => {
+  // Carrega dados ao focar na tela
+  useFocusEffect(
+    useCallback(() => {
+      carregarDados();
+    }, [])
+  );
+
+  // Carrega dados iniciais
+  const carregarDados = async () => {
   try {
     setStatePartial({ carregando: true });
 
@@ -86,20 +85,21 @@ const carregarDados = async () => {
     const trintaDiasAtras = new Date();
     trintaDiasAtras.setDate(hoje.getDate() - 30);
 
-    // Atualiza filtros antes da busca
+    // Aplica filtro PENDENTE e intervalo de 30 dias
     setState(prev => ({
       ...prev,
       inicio: trintaDiasAtras,
       fim: hoje,
-      statusSelecionado: 'PENDENTE',
+      statusSelecionado: 'PENDENTE'
     }));
 
     await carregarMotoristas();
 
+    // Espera um pequeno delay para garantir que o state foi atualizado
     setTimeout(() => {
-      buscarEntregas(); // Aguarda o estado ser aplicado
+      buscarEntregas(); // chama após filtros aplicados
     }, 100);
-
+    
   } catch (error) {
     console.error('Erro ao carregar dados:', error);
     Alert.alert('Erro', 'Falha ao carregar dados iniciais');
@@ -107,14 +107,6 @@ const carregarDados = async () => {
     setStatePartial({ carregando: false });
   }
 };
-
-// useFocusEffect que chama a função acima
-useFocusEffect(
-  useCallback(() => {
-    carregarDados();
-  }, [])
-);
-
 
 
   // Carrega lista de motoristas
@@ -602,7 +594,6 @@ const EntregaCard = React.memo(({ entrega, selecionavel }: { entrega: any, selec
   const selecionada = state.entregasParaDistribuir.includes(entrega.id);
 
   return (
-
   <View style={[
     styles.card,
     { borderLeftColor: status.color, borderLeftWidth: 5 },
@@ -733,9 +724,7 @@ const EntregaCard = React.memo(({ entrega, selecionavel }: { entrega: any, selec
       )}
     </View>
   </View>
-  
 );
-
 
 });
 

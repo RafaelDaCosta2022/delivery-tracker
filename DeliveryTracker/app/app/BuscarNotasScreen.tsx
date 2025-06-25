@@ -1,29 +1,16 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Linking,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Modal,
+  ActivityIndicator, TextInput, Image, Alert, Platform, Linking
 } from 'react-native';
-import { useAuth } from './AuthContext';
 import { API } from './config';
-
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-
-
-import { FontAwesome, Ionicons, MaterialIcons } from '@expo/vector-icons';
-import ImageViewing from 'react-native-image-viewing';
-
+import { ScrollView } from 'react-native';
+import { useAuth } from './ProtectedRoute';
+import { MaterialIcons, Ionicons, FontAwesome5,FontAwesome } from '@expo/vector-icons';
+import ImageViewing from 'react-native-image-viewing'; // ✅ Substituto moderno
 export default function BuscarNotasScreen() {
   const { authHeader, usuario } = useAuth();
 
@@ -44,7 +31,6 @@ if (!usuario) {
   const [imagemCanhoto, setImagemCanhoto] = useState<string | null>(null);
   const [baixandoPDF, setBaixandoPDF] = useState(false);
   const [baixandoXML, setBaixandoXML] = useState(false);
-  
 
   
 

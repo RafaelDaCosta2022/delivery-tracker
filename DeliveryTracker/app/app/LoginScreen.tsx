@@ -1,37 +1,33 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
+  View,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Animated
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useAuth } from './AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API } from './config';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 
 export default function LoginScreen() {
-  const { login } = useAuth();
-
+  const navigation = useNavigation();
   const [nome, setNome] = useState('');
   const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [lembrarUsuario, setLembrarUsuario] = useState(true);
-  const navigation = useNavigation();
-  
+
   const [fadeAnim] = useState(new Animated.Value(0));
   const [logoScale] = useState(new Animated.Value(0.8));
 
   useEffect(() => {
-    // Animação ao entrar na tela
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -60,102 +56,96 @@ export default function LoginScreen() {
         console.error('Erro ao carregar credenciais:', error);
       }
     };
-    
+
     carregarLoginSalvo();
   }, []);
 
   const logar = async () => {
-  if (!nome.trim() || !senha.trim()) {
-    Alert.alert('Campos obrigatórios', 'Preencha todos os campos para continuar');
-    return;
-  }
+    if (!nome.trim() || !senha.trim()) {
+      Alert.alert('Campos obrigatórios', 'Preencha todos os campos para continuar');
+      return;
+    }
 
-  setCarregando(true);
+    setCarregando(true);
 
-  try {
-    const url = API.LOGIN(); // ✅ corrigido
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome, senha }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 0.9,
-          duration: 100,
-          useNativeDriver: true
-        }),
-        Animated.spring(fadeAnim, {
-          toValue: 1,
-          friction: 3,
-          useNativeDriver: true
-        })
-      ]).start();
-
-      Alert.alert('Erro de login', data.error || 'Credenciais inválidas');
-    } else {
-      if (lembrarUsuario) {
-        await AsyncStorage.setItem('credenciais', JSON.stringify({
-          nome,
-          senha,
-          lembrar: lembrarUsuario
-        }));
-      } else {
-        await AsyncStorage.removeItem('credenciais');
-      }
-
-      const cleanToken = (data.token || '').trim().replace(/\s+/g, '');
-      await login({
-        id: data.id,
-        nome: data.nome,
-        tipo: data.tipo,
-        token: cleanToken
+    try {
+      const url = await API.LOGIN();
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, senha })
       });
 
-      if (['motorista', 'vendedor', 'admin'].includes(data.tipo)) {
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true
-        }).start(() => {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Main' }], // ✅ mantenha se o App.js usa "Main"
-          });
-        });
+      const data = await response.json();
+
+      if (!response.ok) {
+        Animated.sequence([
+          Animated.timing(fadeAnim, {
+            toValue: 0.9,
+            duration: 100,
+            useNativeDriver: true
+          }),
+          Animated.spring(fadeAnim, {
+            toValue: 1,
+            friction: 3,
+            useNativeDriver: true
+          })
+        ]).start();
+
+        Alert.alert('Erro de login', data.error || 'Credenciais inválidas');
       } else {
-        Alert.alert('Acesso não permitido', 'Seu perfil não tem acesso ao sistema');
+        // Validar perfil antes de salvar
+        if (!['motorista', 'vendedor', 'admin'].includes(data.tipo)) {
+          Alert.alert('Acesso não permitido', 'Seu perfil não tem acesso ao sistema');
+          return;
+        }
+
+        if (lembrarUsuario) {
+          await AsyncStorage.setItem(
+            'credenciais',
+            JSON.stringify({ nome, senha, lembrar: lembrarUsuario })
+          );
+        } else {
+          await AsyncStorage.removeItem('credenciais');
+        }
+
+        const cleanToken = (data.token || '').trim().replace(/\s+/g, '');
+        await AsyncStorage.setItem(
+          'usuario',
+          JSON.stringify({
+            nome: data.nome,
+            tipo: data.tipo,
+            token: cleanToken
+          })
+        );
+
+        // ✅ Redireciona para a tela principal
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'Main' }],
+          })
+        );
       }
+    } catch (err) {
+      Alert.alert('Erro de conexão', 'Não foi possível conectar ao servidor');
+    } finally {
+      setCarregando(false);
     }
-  } catch (err) {
-    Alert.alert('Erro de conexão', 'Não foi possível conectar ao servidor');
-  } finally {
-    setCarregando(false);
-  }
-}; // <-- ESSE ENCERRAMENTO estava faltando
+  };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      {/* resto do seu JSX */}
-
       <Animated.View style={[styles.innerContainer, { opacity: fadeAnim }]}>
-        {/* Cabeçalho com logo animada */}
-        <Animated.View style={[styles.header, { transform: [{ scale: logoScale }] }]}>
-          
+       <Animated.View style={[styles.header, { transform: [{ scale: logoScale }] }]}>
           <Text style={styles.title}>Bem-vindo</Text>
           <Text style={styles.subtitle}>Faça login para continuar</Text>
         </Animated.View>
 
-        {/* Formulário */}
         <View style={styles.formContainer}>
-          {/* Campo Nome */}
           <View style={styles.inputContainer}>
             <Icon name="account-outline" size={24} color="#4caf50" style={styles.icon} />
             <TextInput
@@ -169,7 +159,6 @@ export default function LoginScreen() {
             />
           </View>
 
-          {/* Campo Senha */}
           <View style={styles.inputContainer}>
             <Icon name="lock-outline" size={24} color="#4caf50" style={styles.icon} />
             <TextInput
@@ -180,20 +169,19 @@ export default function LoginScreen() {
               value={senha}
               onChangeText={setSenha}
             />
-            <TouchableOpacity 
-              onPress={() => setMostrarSenha(!mostrarSenha)} 
+            <TouchableOpacity
+              onPress={() => setMostrarSenha(!mostrarSenha)}
               style={styles.toggle}
             >
-              <Icon 
-                name={mostrarSenha ? "eye-off-outline" : "eye-outline"} 
-                size={24} 
-                color="#757575" 
+              <Icon
+                name={mostrarSenha ? 'eye-off-outline' : 'eye-outline'}
+                size={24}
+                color="#757575"
               />
             </TouchableOpacity>
           </View>
 
-          {/* Opção Lembrar-me */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.rememberContainer}
             onPress={() => setLembrarUsuario(!lembrarUsuario)}
           >
@@ -203,10 +191,9 @@ export default function LoginScreen() {
             <Text style={styles.rememberText}>Lembrar minhas credenciais</Text>
           </TouchableOpacity>
 
-          {/* Botão Entrar */}
-          <TouchableOpacity 
-            style={[styles.button, carregando && styles.buttonDisabled]} 
-            onPress={logar} 
+          <TouchableOpacity
+            style={[styles.button, carregando && styles.buttonDisabled]}
+            onPress={logar}
             disabled={carregando}
             activeOpacity={0.8}
           >
@@ -216,21 +203,22 @@ export default function LoginScreen() {
               <Text style={styles.buttonText}>Entrar</Text>
             )}
           </TouchableOpacity>
+          
         </View>
 
-        {/* Rodapé */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>Acesso restrito a funcionários autorizados</Text>
           <Text style={styles.footerNote}>Entre em contato com o administrador para suporte</Text>
         </View>
-        {/* Botão de engrenagem para abrir Configuração */}
-<TouchableOpacity 
-  style={styles.configButton}
+        <TouchableOpacity
   onPress={() => navigation.navigate('Configuracao')}
-  activeOpacity={0.7}
+  style={{ marginTop: 20 }}
 >
-  <Icon name="cog-outline" size={26} color="#4caf50" />
+  <Text style={{ color: '#3498db', textAlign: 'center' }}>
+    ⚙️ Configurar Servidor
+  </Text>
 </TouchableOpacity>
+
       </Animated.View>
     </KeyboardAvoidingView>
   );
@@ -239,38 +227,31 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f8f9fa'
   },
   innerContainer: {
     flex: 1,
     padding: 30,
-    justifyContent: 'center',
+    justifyContent: 'center'
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
-  },
-  logo: {
-    width: 140,
-    height: 140,
-    marginBottom: 20,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
+    marginBottom: 40
   },
   title: {
     fontSize: 32,
     fontWeight: '800',
     color: '#2e7d32',
     marginBottom: 8,
-    letterSpacing: 0.5,
+    letterSpacing: 0.5
   },
   subtitle: {
     fontSize: 16,
     color: '#757575',
-    fontWeight: '500',
+    fontWeight: '500'
   },
   formContainer: {
-    marginBottom: 30,
+    marginBottom: 30
   },
   inputContainer: {
     flexDirection: 'row',
@@ -284,27 +265,27 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 3
   },
   icon: {
-    marginRight: 12,
+    marginRight: 12
   },
   input: {
     flex: 1,
     height: '100%',
     fontSize: 16,
     color: '#333',
-    fontWeight: '500',
+    fontWeight: '500'
   },
   toggle: {
     padding: 8,
-    marginLeft: 5,
+    marginLeft: 5
   },
   rememberContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 25,
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-start'
   },
   checkbox: {
     width: 24,
@@ -314,16 +295,16 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 10
   },
   checkboxChecked: {
     backgroundColor: '#4caf50',
-    borderColor: '#4caf50',
+    borderColor: '#4caf50'
   },
   rememberText: {
     fontSize: 15,
     color: '#424242',
-    fontWeight: '500',
+    fontWeight: '500'
   },
   button: {
     backgroundColor: '#4caf50',
@@ -335,49 +316,34 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
-    elevation: 6,
+    elevation: 6
   },
   buttonDisabled: {
-    backgroundColor: '#a5d6a7',
+    backgroundColor: '#a5d6a7'
   },
   buttonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.5
   },
   footer: {
     alignItems: 'center',
     marginTop: 30,
     paddingTop: 20,
     borderTopWidth: 1,
-    borderTopColor: '#eeeeee',
+    borderTopColor: '#eeeeee'
   },
   footerText: {
     color: '#616161',
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 5,
-    fontWeight: '500',
+    fontWeight: '500'
   },
   footerNote: {
     color: '#9e9e9e',
     fontSize: 12,
-    textAlign: 'center',
-
-    configButton: {
-  position: 'absolute',
-  bottom: 20,
-  right: 20,
-  backgroundColor: '#ffffff',
-  borderRadius: 30,
-  padding: 12,
-  elevation: 5,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.2,
-  shadowRadius: 3,
-},
-
-  },
+    textAlign: 'center'
+  }
 });

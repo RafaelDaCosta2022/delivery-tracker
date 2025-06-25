@@ -1,35 +1,52 @@
-//DrawerNavigator.tsx
-// Navegação com Drawer usando React Navigation
-
+// File: DrawerNavigator.tsx
+import React, { useEffect, useState } from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { useNavigation } from '@react-navigation/native';
-import React from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions } from '@react-navigation/native';
+import {
+  ActivityIndicator,
+  View,
+  Text
+} from 'react-native';
 import HomeScreen from './HomeScreen';
-
-import { FontAwesome5, Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import { ActivityIndicator, Text, View } from 'react-native';
-import { useAuth } from './AuthContext';
-import BuscaNotasScreen from './BuscarNotasScreen';
-import CadastroUsuarioScreen from './CadastroUsuarioScreen';
 import CentralControleScreen from './CentralControleScreen';
-import ConfiguracaoScreen from './ConfiguracaoScreen';
-import CustomDrawerContent from './CustomDrawerContent';
 import MinhasEntregasScreen from './MinhasEntregasScreen';
 import VendedorScreen from './VendedorScreen';
+import CadastroUsuarioScreen from './CadastroUsuarioScreen';
+import BuscaNotasScreen from './BuscarNotasScreen';
+import ConfiguracaoScreen from './ConfiguracaoScreen';
+import CustomDrawerContent from './CustomDrawerContent';
+import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 
 const Drawer = createDrawerNavigator();
 
-export default function DrawerNavigator() {
-  const navigation = useNavigation();
-  const { usuario, logout } = useAuth(); // ✅ usa contexto real
+export default function DrawerNavigator({ navigation }: { navigation: any }) {
+  const [usuario, setUsuario] = useState<any>(null);
+  const [carregando, setCarregando] = useState(true);
 
-  const handleLogout = async () => {
-  await logout();
-  // 👇 Não precisa redirecionar manualmente!
+  useEffect(() => {
+    const carregarUsuario = async () => {
+      const usuarioStorage = await AsyncStorage.getItem('usuario');
+      const usuarioObj = usuarioStorage ? JSON.parse(usuarioStorage) : null;
+      setUsuario(usuarioObj);
+      setCarregando(false);
+    };
+    carregarUsuario();
+  }, []);
+
+ const handleLogout = async () => {
+  // Limpar TODOS os dados de autenticação
+  await AsyncStorage.multiRemove(['usuario', 'credenciais']);
+  
+  navigation.dispatch(
+    CommonActions.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    })
+  );
 };
 
-
-  if (!usuario) {
+  if (carregando) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f9ff' }}>
         <ActivityIndicator size="large" color="#4a6cff" />
@@ -45,10 +62,7 @@ export default function DrawerNavigator() {
     default: '#9c7bff'
   };
 
-  const color = accentColors[usuario.tipo] || accentColors.default;
-
-
-
+  const color = accentColors[usuario?.tipo] || accentColors.default;
 
   return (
     <Drawer.Navigator

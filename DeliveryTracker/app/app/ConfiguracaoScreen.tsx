@@ -1,17 +1,16 @@
-//ConfguraçãoScreen.tsx
-
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
+  View,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  Alert,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { DEFAULT_IP, getBaseURL, updateIP } from './config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { updateIP, getBaseURL, DEFAULT_IP } from './config';
 
 export default function ConfiguracaoScreen() {
   const [ip, setIp] = useState('');

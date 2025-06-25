@@ -1,41 +1,41 @@
-// 🚀 HomeScreen.tsx - Versão Aprimorada e Corrigida
-import moment from 'moment';
-import 'moment/locale/pt-br';
-import React, { useCallback, useEffect, useState } from 'react';
+// 🚀 HomeScreen.tsx - Versão Aprimorada
+import React, { useEffect, useState, useCallback } from 'react';
 import {
+  View,
+  Text,
+  StyleSheet,
   ActivityIndicator,
-  Alert,
-  Animated,
-  Easing,
   FlatList,
+  TouchableOpacity,
   RefreshControl,
   ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+  Image,
+  Alert,
+  Animated,
+  Easing
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useAuth } from './AuthContext';
-import { API } from './config';
+import { API, authHeader } from './config';
+import moment from 'moment';
+import 'moment/locale/pt-br';
 
 // Paleta de cores profissional refinada
 const COLORS = {
-  primary: '#2c3e50',
-  secondary: '#3498db',
-  accent: '#27ae60',
-  lightAccent: '#2ecc71',
-  background: '#f8f9fa',
-  cardBackground: '#ffffff',
-  text: '#34495e',
-  textLight: '#7f8c8d',
-  danger: '#e74c3c',
-  warning: '#f39c12',
-  border: '#ecf0f1',
+  primary: '#2c3e50',     // Azul escuro
+  secondary: '#3498db',   // Azul principal
+  accent: '#27ae60',      // Verde para sucesso
+  lightAccent: '#2ecc71', // Verde claro
+  background: '#f8f9fa',  // Fundo claro
+  cardBackground: '#ffffff', // Fundo de cards
+  text: '#34495e',        // Texto principal
+  textLight: '#7f8c8d',   // Texto secundário
+  danger: '#e74c3c',      // Vermelho para alertas
+  warning: '#f39c12',     // Amarelo
+  border: '#ecf0f1',      // Borda suave
 };
 
 export default function HomeScreen({ navigation }) {
-  const { authHeader, logout, usuario } = useAuth();
   const [resumo, setResumo] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -43,45 +43,54 @@ export default function HomeScreen({ navigation }) {
   const [pendentesTotal, setPendentesTotal] = useState(0);
   const [entreguesTotal, setEntreguesTotal] = useState(0);
   const [error, setError] = useState('');
-
+  
   const hoje = moment().locale('pt-br').format('dddd, D [de] MMMM [de] YYYY');
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.95))[0];
 
-  useEffect(() => {
+  // Carrega dados automaticamente ao entrar
+useEffect(() => {
+  // ⚡ Já carrega ao montar
+  verificarToken();
+
+  const unsubscribe = navigation.addListener('focus', () => {
     verificarToken();
-    const unsubscribe = navigation.addListener('focus', () => {
-      verificarToken();
-    });
+  });
 
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.quad)
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 6,
-        useNativeDriver: true
-      })
-    ]).start();
+  // Animação de entrada
+  Animated.parallel([
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.quad)
+    }),
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 6,
+      useNativeDriver: true
+    })
+  ]).start();
 
-    return () => {
-      unsubscribe();
-      fadeAnim.setValue(0);
-      scaleAnim.setValue(0.95);
-    };
-  }, []);
+  return () => {
+    unsubscribe();
+    fadeAnim.setValue(0);
+    scaleAnim.setValue(0.95);
+  };
+}, []);
+
 
   const verificarToken = async () => {
     try {
-      if (!usuario?.token) {
+      setCarregando(true);
+      const user = await AsyncStorage.getItem('usuario');
+      const parsedUser = user ? JSON.parse(user) : {};
+      
+      if (!parsedUser.token) {
         navigation.replace('Login');
         return;
       }
-      setCarregando(true);
+      
       await carregarResumo();
     } catch (err) {
       console.error('Erro ao verificar token:', err);
@@ -89,29 +98,35 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-  const carregarResumo = async () => {
+const carregarResumo = async () => {
   setRefreshing(true);
   setError('');
 
   try {
-    const headers = await authHeader();
-    console.log('🔐 Headers enviados:', headers);
+    const user = await AsyncStorage.getItem('usuario');
+    const parsedUser = user ? JSON.parse(user) : {};
+    const token = parsedUser.token;
 
-    const res = await fetch(API.ENTREGAS(), { headers });
+    if (!token) {
+      navigation.replace('Login');
+      return;
+    }
+      const res = await fetch(API.ENTREGAS(), {
+  headers: await authHeader(),
+});
 
 
     if (!res.ok) {
       const msg = await res.text();
-      console.log('⚠️ Status HTTP:', res.status);
-      console.log('⚠️ Resposta do servidor:', msg);
       throw new Error('Erro ao buscar entregas: ' + msg);
     }
 
     let entregas = await res.json();
     const agora = new Date();
 
+    // 🔥 Só entrega COM motorista atribuído aparece!
     entregas = entregas.filter((entrega) => {
-      if (!entrega.motorista) return false;
+      if (!entrega.motorista) return false; // <-- usa 'motorista'!
       if (entrega.status === 'PENDENTE') return true;
       if (
         (entrega.status === 'ENTREGUE' || entrega.status === 'CONCLUIDA') &&
@@ -125,11 +140,14 @@ export default function HomeScreen({ navigation }) {
       return false;
     });
 
+    // Agrupa por motorista (campo 'motorista')
     const resumoPorMotorista = [];
     const ids = new Set();
     entregas.forEach((e) => {
       if (!ids.has(e.motorista)) {
-        const entregasMotorista = entregas.filter((x) => x.motorista === e.motorista);
+        const entregasMotorista = entregas.filter(
+          (x) => x.motorista === e.motorista
+        );
         resumoPorMotorista.push({
           motorista_id: e.motorista,
           motorista_nome: e.nome_motorista,
@@ -138,9 +156,12 @@ export default function HomeScreen({ navigation }) {
             (sum, x) => sum + Number(x.valor_total || 0),
             0
           ),
-          pendentes: entregasMotorista.filter((x) => x.status === 'PENDENTE').length,
-          entregues: entregasMotorista.filter((x) =>
-            x.status === 'CONCLUIDA' || x.status === 'ENTREGUE'
+          pendentes: entregasMotorista.filter(
+            (x) => x.status === 'PENDENTE'
+          ).length,
+          entregues: entregasMotorista.filter(
+            (x) =>
+              x.status === 'CONCLUIDA' || x.status === 'ENTREGUE'
           ).length,
         });
         ids.add(e.motorista);
@@ -149,6 +170,7 @@ export default function HomeScreen({ navigation }) {
 
     setResumo(resumoPorMotorista);
 
+    // Totais do painel
     let totalValor = 0;
     let totalPendentes = 0;
     let totalEntregues = 0;
@@ -162,7 +184,6 @@ export default function HomeScreen({ navigation }) {
     setEntreguesTotal(totalEntregues);
 
   } catch (err) {
-    console.error('❌ Erro no carregamento de entregas:', err);
     setError(err.message || 'Erro ao carregar dados');
     Alert.alert('Erro', err.message || 'Não foi possível carregar suas entregas.');
   } finally {
@@ -170,6 +191,9 @@ export default function HomeScreen({ navigation }) {
     setRefreshing(false);
   }
 };
+
+
+
 
 
 

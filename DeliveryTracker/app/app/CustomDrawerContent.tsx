@@ -1,51 +1,50 @@
-//CustomDrawerContent.tsx
-
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+// CustomDrawerContent.js
+import React from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  StatusBar,
+} from 'react-native';
 import {
   DrawerContentScrollView,
   DrawerItemList,
 } from '@react-navigation/drawer';
-import React from 'react';
-import {
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 
-type Props = {
-  usuario: { nome: string; tipo: string };
-  accentColor: string;
-  onLogout: () => void;
-};
-
-export default function CustomDrawerContent(props: any) {
+export default function CustomDrawerContent(props) {
   const { usuario, accentColor, onLogout, ...rest } = props;
   const nome = usuario?.nome || 'Usuário';
   const tipo = usuario?.tipo || 'tipo';
-
+  
+  // Formatar tipo de usuário
   const formatTipo = {
     admin: 'Administrador',
     vendedor: 'Vendedor',
-    motorista: 'Motorista',
+    motorista: 'Motorista'
   }[tipo] || tipo;
 
   return (
     <View style={styles.container}>
       <StatusBar backgroundColor={accentColor} barStyle="light-content" />
-
-      {/* Header */}
-      <Animatable.View
+      
+      {/* Header com gradiente */}
+      <Animatable.View 
         style={[styles.header, { backgroundColor: accentColor }]}
         animation="fadeInDown"
         duration={800}
       >
         <View style={styles.profileContainer}>
           <View style={[styles.avatar, { borderColor: '#fff' }]}>
-            <MaterialCommunityIcons name="account" size={48} color="#fff" />
+            <MaterialCommunityIcons 
+              name="account" 
+              size={48} 
+              color="#fff" 
+            />
           </View>
+          
           <View style={styles.userInfo}>
             <Text style={styles.userName} numberOfLines={1}>{nome}</Text>
             <View style={[styles.userBadge, { backgroundColor: 'rgba(255,255,255,0.3)' }]}>
@@ -55,19 +54,22 @@ export default function CustomDrawerContent(props: any) {
         </View>
       </Animatable.View>
 
-      {/* Itens do Drawer */}
-      <DrawerContentScrollView
-        {...rest}
+      <DrawerContentScrollView 
+        {...rest} 
         contentContainerStyle={styles.drawerContent}
         showsVerticalScrollIndicator={false}
       >
         <Animatable.View animation="fadeInUp" delay={300}>
-          <DrawerItemList {...rest} itemStyle={styles.drawerItem} />
+          {/* Ajuste de espaçamento para os itens */}
+          <DrawerItemList 
+            {...rest} 
+            itemStyle={styles.drawerItem}
+          />
         </Animatable.View>
       </DrawerContentScrollView>
 
-      {/* Rodapé com logout */}
-      <Animatable.View
+      {/* Footer */}
+      <Animatable.View 
         style={styles.footer}
         animation="fadeInUp"
         delay={500}
@@ -76,12 +78,15 @@ export default function CustomDrawerContent(props: any) {
           <Text style={styles.appName}>📦 DeliveryTracker PRO</Text>
           <Text style={styles.version}>v2.5.1</Text>
         </View>
-
-        <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+        
+        <TouchableOpacity 
+          style={styles.logoutButton}
+          onPress={onLogout}
+        >
           <Ionicons name="log-out-outline" size={24} color="#ff6b6b" />
           <Text style={styles.logoutText}>Sair</Text>
         </TouchableOpacity>
-
+        
         <Text style={styles.copyright}>© 2025 Delivery Solutions Inc.</Text>
       </Animatable.View>
     </View>
@@ -89,14 +94,20 @@ export default function CustomDrawerContent(props: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
   header: {
     padding: 25,
     paddingTop: 45,
     borderBottomRightRadius: 20,
     paddingBottom: 25,
   },
-  profileContainer: { flexDirection: 'row', alignItems: 'center' },
+  profileContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   avatar: {
     width: 70,
     height: 70,
@@ -106,7 +117,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
   },
-  userInfo: { marginLeft: 15, flex: 1 },
+  userInfo: {
+    marginLeft: 15,
+    flex: 1,
+  },
   userName: {
     fontSize: 20,
     fontFamily: 'Inter-SemiBold',

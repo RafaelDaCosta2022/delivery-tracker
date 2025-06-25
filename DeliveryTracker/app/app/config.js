@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { decode } from 'base-64'; // Polyfill para atob
 import { Alert } from 'react-native';
+import { decode } from 'base-64'; // Polyfill para atob
 
 // Polyfill para atob no React Native
 if (typeof atob === 'undefined') {
@@ -35,7 +35,7 @@ const isValidNgrokUrl = (url: string): boolean => {
 };
 
 // IP padrão inicial
-export const DEFAULT_IP = normalizeUrl('6742-2804-1b3-9201-1324-49df-f321-33a-5eac.ngrok-free.app');
+export const DEFAULT_IP = normalizeUrl('41de-2804-1b3-9201-1324-e1bb-57b0-2095-dfae.ngrok-free.app');
 let customIP: string | null = null;
 let ipInicializado = false;
 
@@ -82,9 +82,6 @@ export const updateIP = async (newIP: string): Promise<boolean> => {
 
 // Retorna o IP atual em uso
 export const getBaseURL = (): string => {
-  if (!customIP && !ipInicializado) {
-    console.warn('[config] ⚠️ IP não inicializado ainda. Retornando DEFAULT_IP por segurança.');
-  }
   return customIP || DEFAULT_IP;
 };
 
@@ -100,9 +97,13 @@ export const API = {
   ATRIBUIR_MOTORISTA: () => `${getBaseURL()}/atribuir-motorista`,
   USUARIOS: () => `${getBaseURL()}/usuarios`,
   BUSCAR_NOTAS: () => `${getBaseURL()}/buscar-notas`,
+  DISTRIBUIR_ENTREGAS:()=> `${getBaseURL()}/distribuir-entregas`,
 };
 
-
+// Limpeza segura de credenciais
+export const clearAuthData = async (): Promise<void> => {
+  await AsyncStorage.multiRemove(['usuario', 'credenciais']);
+};
 
 // Verifica se o token é válido
 const isTokenValid = (token: string): boolean => {
@@ -118,3 +119,34 @@ const isTokenValid = (token: string): boolean => {
   }
 };
 
+// Cabeçalho de autenticação com token (única declaração)
+export const authHeader = async (): Promise<Record<string, string>> => {
+  try {
+    const user = await AsyncStorage.getItem('usuario');
+    if (!user) return {};
+
+    const parsed = JSON.parse(user);
+    let token = parsed.token;
+
+    if (!token) return {};
+    
+    // Verificação de estrutura
+    const tokenParts = token.split('.');
+    if (tokenParts.length !== 3 || !isTokenValid(token)) {
+      await clearAuthData();
+      return {};
+    }
+
+    // Sanitização segura
+    token = token.trim();
+
+    return {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+  } catch (error) {
+    console.error('Erro ao gerar authHeader:', error);
+    await clearAuthData();
+    return {};
+  }
+};

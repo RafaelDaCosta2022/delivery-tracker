@@ -1,26 +1,27 @@
 // MinhasEntregasScreen.tsx
-import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
-import { useFocusEffect } from '@react-navigation/native';
-import * as FileSystem from 'expo-file-system';
-import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import ProtectedRoute from './ProtectedRoute';
+import { authHeader } from './config';
 import {
-  ActivityIndicator,
-  Alert,
+  View,
+  Text,
+  StyleSheet,
   FlatList,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
   Image,
   Modal,
   RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
 } from 'react-native';
-import { useAuth } from './AuthContext';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { API } from './config';
-import ProtectedRoute from './ProtectedRoute';
+import { useAuth } from './ProtectedRoute';
+import { Ionicons } from '@expo/vector-icons';
 
 // Paleta de cores moderna
 const COLORS = {
@@ -36,7 +37,7 @@ const COLORS = {
   card: '#ffffff',
 };
 
- function MinhasEntregasScreen() {
+export default function MinhasEntregasScreen() {
   const [entregas, setEntregas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,8 +47,6 @@ const COLORS = {
   const [modalConfirmacao, setModalConfirmacao] = useState(false);
   const [entregaSelecionada, setEntregaSelecionada] = useState<any>(null);
   const [estaOffline, setEstaOffline] = useState(false);
-    const { authHeader } = useAuth();
-    const headers = authHeader();
 
   useEffect(() => {
     solicitarPermissaoCamera();
@@ -169,7 +168,7 @@ const COLORS = {
       type: 'image/jpeg',
     } as any);
 
-    const response = await fetch(`${API.CANHOTO}/${entregaId}`, {
+    const response = await fetch(`${API.CANHOTO()}/${entregaId}`, {
       method: 'POST',
       body: formData,
       headers: {
@@ -241,7 +240,7 @@ const COLORS = {
           type: item.tipo,
         } as any);
 
-        const res = await fetch(`${API.CANHOTO}/${item.entregaId}`, {
+        const res = await fetch(`${API.CANHOTO()}/${item.entregaId}`, {
           method: 'POST',
           body: formData,
           headers,
@@ -724,11 +723,3 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
-
-export default function MinhasEntregasScreenWrapper() {
-  return (
-    <ProtectedRoute permitido={['motorista']}>
-      <MinhasEntregasScreen />
-    </ProtectedRoute>
-  );
-}

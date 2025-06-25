@@ -1,26 +1,27 @@
-import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  Easing,
-  FlatList,
-  Image,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
+  View,
   Text,
-  TextInput,
+  StyleSheet,
+  FlatList,
   TouchableOpacity,
-  View
+  Modal,
+  ActivityIndicator,
+  TextInput,
+  Image,
+  Dimensions,
+  Animated,
+  Easing,
+  ScrollView
 } from 'react-native';
+import { API, authHeader } from './config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Animatable from 'react-native-animatable';
-
+import { RefreshControl } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function VendedorScreen() {
   const [relatorio, setRelatorio] = useState([]);
@@ -88,7 +89,7 @@ const handleRefresh = () => {
     };
 
     // 📡 2. Fazer a requisição com token validado
-    const url = `${API.ENTREGAS}?data=${formattedDate}&periodo=${periodo}`;
+    const url = `${API.ENTREGAS()}?data=${formattedDate}&periodo=${periodo}`;
     const res = await fetch(url, { headers: headersCorrigidos });
 
     if (!res.ok) throw new Error('Erro ao buscar entregas');

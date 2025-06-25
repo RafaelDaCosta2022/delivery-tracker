@@ -1,52 +1,33 @@
-import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+// ProtectedRoute.tsx
+import React from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
+import { useAuth } from './AuthContext';
 
-type ProtectedRouteProps = {
+type Props = {
   children: React.ReactNode;
-  permitido?: string[]; // Tipos de usuário permitidos (opcional)
+  permitido?: string[];
 };
 
-export default function ProtectedRoute({ children, permitido }: ProtectedRouteProps) {
-  const [carregando, setCarregando] = useState(true);
-  const [autorizado, setAutorizado] = useState(false);
-  const navigation = useNavigation();
-
-  useEffect(() => {
-    const verificarLogin = async () => {
-      try {
-        const usuarioSalvo = await AsyncStorage.getItem('usuario');
-        if (!usuarioSalvo) {
-          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-          return;
-        }
-
-        const { tipo } = JSON.parse(usuarioSalvo);
-
-        if (permitido && !permitido.includes(tipo)) {
-          navigation.reset({ index: 0, routes: [{ name: 'Home' }] }); // Ou alguma tela de aviso
-          return;
-        }
-
-        setAutorizado(true);
-      } catch (err) {
-        console.log('Erro ao verificar login:', err);
-      } finally {
-        setCarregando(false);
-      }
-    };
-
-    verificarLogin();
-  }, []);
+export default function ProtectedRoute({ children, permitido = [] }: Props) {
+  const { usuario, carregando, authHeader } = useAuth(); // ✅ agora está completo
+  const headers = authHeader(); // Se você quiser usar os headers aqui, senão pode remover
 
   if (carregando) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#4a6cff" />
+        <Text>Carregando...</Text>
       </View>
     );
   }
 
-  return autorizado ? <>{children}</> : null;
+  if (!usuario || !permitido.includes(usuario.tipo)) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'red', fontSize: 18 }}>Acesso negado</Text>
+      </View>
+    );
+  }
+
+  return <>{children}</>;
 }
