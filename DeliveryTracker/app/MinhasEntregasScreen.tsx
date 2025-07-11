@@ -18,9 +18,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useAuth } from './AuthContext';
-import { API } from './config';
-import ProtectedRoute from './ProtectedRoute';
+import { API, getBaseURL } from './config';
+
 
 // Paleta de cores moderna
 const COLORS = {
@@ -36,7 +35,7 @@ const COLORS = {
   card: '#ffffff',
 };
 
- function MinhasEntregasScreen() {
+export default function MinhasEntregasScreen() {
   const [entregas, setEntregas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,8 +45,6 @@ const COLORS = {
   const [modalConfirmacao, setModalConfirmacao] = useState(false);
   const [entregaSelecionada, setEntregaSelecionada] = useState<any>(null);
   const [estaOffline, setEstaOffline] = useState(false);
-    const { authHeader } = useAuth();
-    const headers = authHeader();
 
   useEffect(() => {
     solicitarPermissaoCamera();
@@ -77,44 +74,33 @@ const COLORS = {
   const carregarEntregas = async () => {
   setRefreshing(true);
   try {
-    const headers = await authHeader();
+    const usuario = await AsyncStorage.getItem('usuario');
+    const { token } = JSON.parse(usuario || '{}');
 
-    if (!headers.Authorization) {
+    if (!token) {
       throw new Error('Token de autenticação não encontrado');
     }
 
-    const tokenSanitizado = headers.Authorization
-      .replace('Bearer', '')
-      .trim()
-      .replace(/\s+/g, '');
+    const response = await fetch(API.MINHAS_ENTREGAS(), { // <- CORRETO AGORA
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-    const tokenParts = tokenSanitizado.split('.');
-    if (tokenParts.length !== 3) {
-      throw new Error('Estrutura do token inválida');
-    }
-
-    const headersCorrigidos = {
-      ...headers,
-      Authorization: `Bearer ${tokenSanitizado}`
-    };
-
-    const response = await fetch(API.MINHAS_ENTREGAS(), { headers: headersCorrigidos });
-
+    console.log('Resposta da API:', response.status);
+    
     if (!response.ok) {
-      const erroTexto = await response.text();
-      throw new Error(`Erro na API: ${erroTexto}`);
+      throw new Error(`Erro na API: ${response.status}`);
     }
 
     const data = await response.json();
-
     const agora = new Date();
     const entregasFiltradas = data.filter((e: any) => {
-      if (e.status === 'PENDENTE') return true;
-      if (e.status === 'ENTREGUE' && e.data_entrega) {
-        const dataEntrega = new Date(e.data_entrega);
-        const diffHoras = (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
-        return diffHoras <= 12;
-      }
+            if (e.status === 'PENDENTE') return true;
+           if (e.status === 'ENTREGUE' && e.canhoto_path) {
+  if (!e.data_entrega) return true; // acabou de ser entregue, mas ainda sem data
+  const dataEntrega = new Date(e.data_entrega);
+  const diffHoras = (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
+  return diffHoras <= 6;
+}
       return false;
     });
 
@@ -125,67 +111,71 @@ const COLORS = {
   } finally {
     setCarregando(false);
     setRefreshing(false);
-  }
-};
-
+   }
+ };
 
 
 
   const enviarCanhoto = async (entregaId: number) => {
-  try {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      aspect: [4, 3],
-    });
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        aspect: [4, 3],
+      });
 
-    if (result.canceled) return;
+      if (result.canceled) return;
 
-    const { uri } = result.assets[0];
+      const { uri } = result.assets[0];
+      const usuario = await AsyncStorage.getItem('usuario');
+      const token = JSON.parse(usuario || '{}').token;
 
-    // Se offline, salvar localmente
-    if (estaOffline) {
-      await salvarOffline(entregaId, uri);
-      Alert.alert('Offline', 'Canhoto salvo localmente. Será enviado automaticamente quando houver conexão');
-      return;
+      // Se offline, salvar localmente
+      if (estaOffline) {
+        await salvarOffline(entregaId, uri);
+        Alert.alert('Offline', 'Canhoto salvo localmente. Será enviado automaticamente quando houver conexão');
+        return;
+      }
+
+      // Se online, enviar diretamente
+      await enviarCanhotoOnline(entregaId, uri, token);
+      
+    } catch (err) {
+      console.error('Erro ao enviar canhoto:', err);
+      Alert.alert('Erro', 'Falha ao enviar canhoto. Tente novamente');
     }
+     await AsyncStorage.setItem('precisaRecarregarResumo', 'true');
+  };
+ 
 
-    // Se online, usar cabeçalho do contexto
-    const headers = await authHeader();
-    await enviarCanhotoOnline(entregaId, uri, headers.Authorization);
+  const enviarCanhotoOnline = async (entregaId: number, uri: string, token: string) => {
+  const formData = new FormData();
+  formData.append('file', {
+    uri,
+    name: `canhoto_${entregaId}.jpg`,
+    type: 'image/jpeg',
+  } as any);
 
-  } catch (err) {
-    console.error('Erro ao enviar canhoto:', err);
-    Alert.alert('Erro', 'Falha ao enviar canhoto. Tente novamente');
+  const response = await fetch(API.CANHOTO(entregaId), {
+    method: 'POST',
+    body: formData,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const resposta = await response.json();
+
+  if (resposta.success) {
+    Alert.alert('Sucesso', 'Canhoto enviado com sucesso!');
+    await AsyncStorage.setItem('precisaRecarregarResumo', 'true'); // ✅ AQUI está certo
+    carregarEntregas(); // recarrega local
+  } else {
+    throw new Error(resposta.error || 'Erro ao enviar canhoto');
   }
 };
 
 
-  const enviarCanhotoOnline = async (entregaId: number, uri: string, token: string) => {
-    const formData = new FormData();
-    formData.append('file', {
-      uri,
-      name: `canhoto_${entregaId}.jpg`,
-      type: 'image/jpeg',
-    } as any);
-
-    const response = await fetch(`${API.CANHOTO}/${entregaId}`, {
-      method: 'POST',
-      body: formData,
-      headers: {
-        Authorization: token,
-      },
-    });
-
-    const resposta = await response.json();
-    
-    if (resposta.success) {
-      Alert.alert('Sucesso', 'Canhoto enviado com sucesso!');
-      carregarEntregas();
-    } else {
-      throw new Error(resposta.error || 'Erro ao enviar canhoto');
-    }
-  };
 
   const salvarOffline = async (entregaId: number, uri: string) => {
     try {
@@ -210,7 +200,7 @@ const COLORS = {
     }
   };
 
-  const tentarReenviarPendentes = async () => {
+ const tentarReenviarPendentes = async () => {
   if (estaOffline) return;
 
   setReenviando(true);
@@ -220,7 +210,8 @@ const COLORS = {
     if (!pendentes) return;
 
     const lista = JSON.parse(pendentes);
-    const headers = await authHeader(); // 🔄 Aqui está a mudança
+    const usuario = await AsyncStorage.getItem('usuario');
+    const token = JSON.parse(usuario || '{}').token;
     const enviados = [];
     const falhas = [];
 
@@ -244,7 +235,9 @@ const COLORS = {
         const res = await fetch(`${API.CANHOTO}/${item.entregaId}`, {
           method: 'POST',
           body: formData,
-          headers,
+          headers: {
+            Authorization: `Bearer ${token}`, // ✅ CORRIGIDO
+          },
         });
 
         const resposta = await res.json();
@@ -271,20 +264,18 @@ const COLORS = {
   } finally {
     setReenviando(false);
   }
+};const confirmarEnvio = (entrega: any) => {
+  setEntregaSelecionada(entrega);
+  setModalConfirmacao(true);
+};
+const visualizarCanhoto = (caminhoRelativo: string) => {
+  const baseURL = getBaseURL();
+  const uriCorrigida = caminhoRelativo.replace(/\s+/g, '').replace(/\\/g, '/');
+  const uriCompleta = `${baseURL}/${uriCorrigida}`;  
+  setImagemSelecionada(uriCompleta);
+  setModalImagemVisivel(true);
 };
 
-
-  const confirmarEnvio = (entrega: any) => {
-    setEntregaSelecionada(entrega);
-    setModalConfirmacao(true);
-  };
-
-  const visualizarCanhoto = (caminho: string) => {
-    const filename = caminho.split('/').pop();
-    const url = `${API.BASE}/uploads/${filename}`;
-    setImagemSelecionada(url);
-    setModalImagemVisivel(true);
-  };
 
   const renderItem = ({ item }: any) => (
     <View style={styles.card}>
@@ -317,36 +308,38 @@ const COLORS = {
       </View>
 
       <View style={styles.actionsContainer}>
-        {item.canhoto_path ? (
-          <TouchableOpacity
-            style={styles.btnSecondary}
-            onPress={() => visualizarCanhoto(item.canhoto_path)}
-          >
-            <Ionicons name="eye-outline" size={18} color={COLORS.primary} />
-            <Text style={styles.btnTextSecondary}>Ver Canhoto</Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={styles.semCanhoto}>Canhoto não disponível</Text>
-        )}
+  {item.canhoto_path ? (
+    <TouchableOpacity
+      style={styles.btnSecondary}
+      onPress={() => visualizarCanhoto(item.canhoto_path)}
+    >
+      <Ionicons name="eye-outline" size={18} color={COLORS.primary} />
+      <Text style={styles.btnTextSecondary}>Ver Canhoto</Text>
+    </TouchableOpacity>
+  ) : (
+    <Text style={styles.semCanhoto}>Canhoto não disponível</Text>
+  )}
 
-        {item.status === 'PENDENTE' && (
-          <TouchableOpacity 
-            style={[styles.btnPrimary, estaOffline && styles.btnDisabled]}
-            onPress={() => confirmarEnvio(item)}
-            disabled={estaOffline}
-          >
-            <Ionicons name="camera-outline" size={18} color="#fff" />
-            <Text style={styles.btnTextPrimary}>
-              {estaOffline ? 'Salvo Local' : 'Enviar Canhoto'}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+  {item.status === 'PENDENTE' && (
+    <TouchableOpacity 
+      style={[styles.btnPrimary, estaOffline && styles.btnDisabled]}
+      onPress={() => confirmarEnvio(item)}
+      disabled={estaOffline}
+    >
+      <Ionicons name="camera-outline" size={18} color="#fff" />
+      <Text style={styles.btnTextPrimary}>
+        {estaOffline ? 'Salvo Local' : 'Enviar Canhoto'}
+      </Text>
+    </TouchableOpacity>
+  )}
+</View>
     </View>
   );
 
+
+
   return (
-    <ProtectedRoute>
+    
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>Minhas Entregas</Text>
@@ -453,7 +446,7 @@ const COLORS = {
           </View>
         </Modal>
       </View>
-    </ProtectedRoute>
+    
   );
 }
 
@@ -724,11 +717,3 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
-
-export default function MinhasEntregasScreenWrapper() {
-  return (
-    <ProtectedRoute permitido={['motorista']}>
-      <MinhasEntregasScreen />
-    </ProtectedRoute>
-  );
-}

@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import ProtectedRoute from './ProtectedRoute';
 import {
-  View,
+  Alert,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
+  View,
 } from 'react-native';
 import { API } from './config';
 
@@ -58,7 +57,7 @@ export default function CadastroUsuarioScreen() {
   };
 
   return (
-    <ProtectedRoute>
+   
       <View style={styles.container}>
         <Text style={styles.title}>Cadastro de Usuário</Text>
 
@@ -104,7 +103,7 @@ export default function CadastroUsuarioScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-    </ProtectedRoute>
+    
   );
 }
 

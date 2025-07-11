@@ -17,7 +17,9 @@
     "web": {
       "bundler": "metro"
     },
-    "plugins": [],
+    "plugins": [
+      "expo-sqlite"
+    ],
     "experiments": {
       "typedRoutes": true
     },

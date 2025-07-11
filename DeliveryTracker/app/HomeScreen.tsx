@@ -1,7 +1,9 @@
 // 🚀 HomeScreen.tsx - Versão Aprimorada e Corrigida
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
 import 'moment/locale/pt-br';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +18,8 @@ import {
   View
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+
+
 import { useAuth } from './AuthContext';
 import { API } from './config';
 
@@ -43,37 +47,45 @@ export default function HomeScreen({ navigation }) {
   const [pendentesTotal, setPendentesTotal] = useState(0);
   const [entreguesTotal, setEntreguesTotal] = useState(0);
   const [error, setError] = useState('');
+  const cacheCarregado = useRef(false);
 
   const hoje = moment().locale('pt-br').format('dddd, D [de] MMMM [de] YYYY');
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.95))[0];
 
-  useEffect(() => {
-    verificarToken();
-    const unsubscribe = navigation.addListener('focus', () => {
-      verificarToken();
-    });
+ useFocusEffect(
+  useCallback(() => {
+    const executar = async () => {
+      if (!cacheCarregado.current) {
+        await carregarCacheResumo();
+        cacheCarregado.current = true;
+      }
 
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.quad)
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 6,
-        useNativeDriver: true
-      })
-    ]).start();
+      verificarToken(); // continua sendo chamado toda vez que focar
+
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.quad)
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          friction: 6,
+          useNativeDriver: true
+        })
+      ]).start();
+    };
+
+    executar();
 
     return () => {
-      unsubscribe();
       fadeAnim.setValue(0);
       scaleAnim.setValue(0.95);
     };
-  }, []);
+  }, [])
+);
 
   const verificarToken = async () => {
     try {
@@ -88,8 +100,45 @@ export default function HomeScreen({ navigation }) {
       navigation.replace('Login');
     }
   };
+  
 
-  const carregarResumo = async () => {
+
+  const carregarCacheResumo = async () => {
+  try {
+    const json = await AsyncStorage.getItem('resumo_home');
+    if (json) {
+      const cache = JSON.parse(json);
+      setResumo(cache.resumo);
+      setValorTotalDia(cache.valorTotal);
+      setPendentesTotal(cache.pendentes);
+      setEntreguesTotal(cache.entregues);
+      console.log('📦 Resumo carregado do cache local');
+    }
+  } catch (e) {
+    console.log('⚠️ Erro ao carregar cache:', e);
+  }
+};
+
+// 💾 Salva no AsyncStorage o resumo da Home (usado para carregar mais rápido depois)
+const salvarCacheResumo = async (dados: {
+  resumo: any[];                // Lista de motoristas e seus dados
+  valorTotal: number;           // Valor total das notas
+  pendentes: number;            // Quantidade de entregas pendentes
+  entregues: number;            // Quantidade de entregas entregues
+}): Promise<void> => {
+  try {
+    const json = JSON.stringify(dados); // Converte o objeto para string
+    await AsyncStorage.setItem('resumo_home', json); // Salva no armazenamento local
+    console.log('💾 Resumo salvo no cache local');
+  } catch (e) {
+    console.log('⚠️ Erro ao salvar cache:', e);
+  }
+};
+
+
+
+
+    const carregarResumo = async () => {
   setRefreshing(true);
   setError('');
 
@@ -98,7 +147,6 @@ export default function HomeScreen({ navigation }) {
     console.log('🔐 Headers enviados:', headers);
 
     const res = await fetch(API.ENTREGAS(), { headers });
-
 
     if (!res.ok) {
       const msg = await res.text();
@@ -125,6 +173,7 @@ export default function HomeScreen({ navigation }) {
       return false;
     });
 
+    // 🔽 Aqui começa seu trecho:
     const resumoPorMotorista = [];
     const ids = new Set();
     entregas.forEach((e) => {
@@ -161,7 +210,15 @@ export default function HomeScreen({ navigation }) {
     setPendentesTotal(totalPendentes);
     setEntreguesTotal(totalEntregues);
 
-  } catch (err) {
+    // 💾 salva o cache
+    await salvarCacheResumo({
+      resumo: resumoPorMotorista,
+      valorTotal: totalValor,
+      pendentes: totalPendentes,
+      entregues: totalEntregues,
+    });
+
+  } catch (err: any) {
     console.error('❌ Erro no carregamento de entregas:', err);
     setError(err.message || 'Erro ao carregar dados');
     Alert.alert('Erro', err.message || 'Não foi possível carregar suas entregas.');

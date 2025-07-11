@@ -1,12 +1,10 @@
 //DrawerNavigator.tsx
 // Navegação com Drawer usando React Navigation
 
+import { FontAwesome5, Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { useNavigation } from '@react-navigation/native';
 import React from 'react';
-import HomeScreen from './HomeScreen';
-
-import { FontAwesome5, Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { useAuth } from './AuthContext';
 import BuscaNotasScreen from './BuscarNotasScreen';
@@ -14,8 +12,10 @@ import CadastroUsuarioScreen from './CadastroUsuarioScreen';
 import CentralControleScreen from './CentralControleScreen';
 import ConfiguracaoScreen from './ConfiguracaoScreen';
 import CustomDrawerContent from './CustomDrawerContent';
+import HomeScreen from './HomeScreen';
 import MinhasEntregasScreen from './MinhasEntregasScreen';
 import VendedorScreen from './VendedorScreen';
+import VisualizadorPDFScreen from './VisualizadorPDFScreen';
 
 const Drawer = createDrawerNavigator();
 
@@ -137,6 +137,12 @@ export default function DrawerNavigator() {
       {usuario?.tipo === 'motorista' && (
         <Drawer.Screen name="Minhas Entregas" component={MinhasEntregasScreen} />
       )}
+      <Drawer.Screen
+  name="VisualizadorPDF"
+  component={VisualizadorPDFScreen}
+  options={{ drawerItemStyle: { display: 'none' } }} // Oculta no Drawer
+/>
     </Drawer.Navigator>
+    
   );
 }

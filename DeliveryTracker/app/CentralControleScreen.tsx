@@ -490,40 +490,52 @@ useFocusEffect(
           text: 'Enviar', 
           onPress: async () => {
             try {
-              const headers = await authHeader();
-              const token = headers.Authorization;
-              
-              if (!token) {
-                throw new Error('Token não encontrado');
-              }
+  console.log('🚚 Preparando envio de canhoto para entrega:', entregaId);
 
-              // CORREÇÃO: URL CORRETA E MÉTODO POST
-              const formData = new FormData();
-              formData.append('file', {
-                uri: imagem.assets[0].uri,
-                name: `canhoto_${entregaId}.jpg`,
-                type: 'image/jpeg',
-              } as any);
+  // ✅ Validação forte do ID
+  if (!entregaId || isNaN(Number(entregaId))) {
+    Alert.alert('❌ Erro', 'ID da entrega inválido!');
+    return;
+  }
 
-              // URL CORRIGIDA
-              const res = await fetch(API.CANHOTO(entregaId), {
-                method: 'POST', // MÉTODO POST CORRETO
-                body: formData,
-                headers: {
-                  Authorization: token,
-                },
-              });
+  const headers = await authHeader();
+  const token = headers.Authorization;
 
-              if (!res.ok) {
-                const errorData = await res.json();
-                throw new Error(errorData.error || 'Falha no envio do canhoto');
-              }
+  if (!token) {
+    throw new Error('Token de autenticação não encontrado.');
+  }
 
-              Alert.alert('✅ Sucesso', 'Canhoto enviado com sucesso');
-              buscarEntregas();
-            } catch (error: any) {
-              Alert.alert('⚠️ Erro', error.message || 'Falha na operação');
-            }
+  const formData = new FormData();
+  formData.append('file', {
+    uri: imagem.assets[0].uri,
+    name: `canhoto_${entregaId}.jpg`,
+    type: 'image/jpeg',
+  } as any);
+
+  console.log('📸 URL do upload:', API.CANHOTO(parseInt(entregaId as string)));
+
+  const res = await fetch(API.CANHOTO(parseInt(entregaId as string)), {
+    method: 'POST',
+    headers: {
+      Authorization: token,
+      // ⚠️ Não inclua 'Content-Type' → o fetch monta o boundary do multipart
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json();
+    console.error('❌ Erro na resposta:', errorData);
+    throw new Error(errorData.error || 'Falha no envio do canhoto');
+  }
+
+  Alert.alert('✅ Sucesso', 'Canhoto enviado com sucesso');
+  buscarEntregas();
+} catch (error: any) {
+  console.error('❌ Erro ao enviar canhoto:', error);
+  Alert.alert('⚠️ Erro', error.message || 'Falha na operação');
+}
+
           }
         }
       ]

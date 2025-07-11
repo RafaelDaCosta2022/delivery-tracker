@@ -1,12 +1,13 @@
 import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as FileSystem from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Dimensions,
-  Easing,
   FlatList,
   Image,
   Modal,
@@ -19,8 +20,10 @@ import {
   View
 } from 'react-native';
 import * as Animatable from 'react-native-animatable';
-
 import { PieChart } from 'react-native-chart-kit';
+import { useAuth } from './AuthContext';
+import { API, initIP } from './config';
+
 
 export default function VendedorScreen() {
   const [relatorio, setRelatorio] = useState([]);
@@ -35,24 +38,86 @@ export default function VendedorScreen() {
   const [activeTab, setActiveTab] = useState('resumo');
   const fadeAnim = useState(new Animated.Value(0))[0];
   const [periodo, setPeriodo] = useState('dia'); // 'dia', 'semana', 'mes'
+  const { authHeader } = useAuth();
+  const path = FileSystem.documentDirectory + 'relatorio.json';
 
-  // Animação de entrada
- useEffect(() => {
-  Animated.timing(fadeAnim, {
-    toValue: 1,
-    duration: 800,
-    easing: Easing.out(Easing.exp),
-    useNativeDriver: true,
-  }).start();
+  useEffect(() => {
+    const carregarDados = async () => {
+      setCarregando(true);
+      await initIP();
+
+      try {
+        const headers = await authHeader();
+        const url = `${API.ENTREGAS()}`;
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+
+        setRelatorio(data || []);
+        await FileSystem.writeAsStringAsync(path, JSON.stringify(data));
+        console.log('📦 Cache salvo!');
+      } catch (error) {
+        console.error('❌ Erro no fetch:', error);
+      } finally {
+        setCarregando(false); // 🔑 nunca esqueça!
+      }
+    };
+
+    carregarDados();
+  }, []);
+
+  // Verificar se existe arquivo local salvo
+  useEffect(() => {
+  const verificarArquivoLocal = async () => {
+    const existe = await FileSystem.getInfoAsync(path);
+    if (existe.exists) {
+      const conteudo = await FileSystem.readAsStringAsync(path);
+      const data = JSON.parse(conteudo);
+      setRelatorio(data);
+      console.log('✅ Cache carregado do arquivo local!');
+    }
+  };
+  verificarArquivoLocal();
 }, []);
 
-useEffect(() => {
-  carregarRelatorio();
-}, [formattedDate, periodo]);
+  // Sempre que mudar periodo, buscar do AsyncStorage
+  useEffect(() => {
+    const carregarDoCache = async () => {
+      setCarregando(true);
+      const cache = await AsyncStorage.getItem('relatorio_cache');
+      if (cache) {
+        setRelatorio(JSON.parse(cache));
+        console.log('⚡ Usando cache local do AsyncStorage');
+      }
+      setCarregando(false);
+    };
+    carregarDoCache();
+  }, [periodo]);
 
-const handleRefresh = () => {
+  // Animação de fade quando tiver dados
+  useEffect(() => {
+    if (relatorio.length > 0) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [relatorio]);
+
+
+
+
+
+const handleRefresh = async () => {
   setRefreshing(true);
-  carregarRelatorio();
+  const existe = await FileSystem.getInfoAsync(PATH_RELATORIO);
+  if (existe.exists) {
+    const conteudo = await FileSystem.readAsStringAsync(PATH_RELATORIO);
+    const data = JSON.parse(conteudo);
+    setRelatorio(data);
+    console.log('♻️ Recarregado do cache do arquivo');
+  }
+  setRefreshing(false);
 };
 
 
@@ -88,7 +153,7 @@ const handleRefresh = () => {
     };
 
     // 📡 2. Fazer a requisição com token validado
-    const url = `${API.ENTREGAS}?data=${formattedDate}&periodo=${periodo}`;
+    const url = `${API.ENTREGAS()}?data=${formattedDate}&periodo=${periodo}`;
     const res = await fetch(url, { headers: headersCorrigidos });
 
     if (!res.ok) throw new Error('Erro ao buscar entregas');
@@ -108,25 +173,45 @@ const handleRefresh = () => {
 // 👇 FILTRO igual a Home: só mostra o que tem motorista, pendente ou entregue há no máximo 12h!
   const entregasValidas = useMemo(() => {
   const agora = new Date();
+  let limite: Date | null = null;
+
+  if (periodo === 'semana') {
+    limite = new Date();
+    limite.setDate(limite.getDate() - 7);
+  } else if (periodo === 'mes') {
+    limite = new Date();
+    limite.setDate(limite.getDate() - 30);
+  }
+
   return relatorio.filter((entrega: any) => {
     if (!entrega.motorista) return false;
+
     if (entrega.status === 'PENDENTE') return true;
+
     if (
       (entrega.status === 'ENTREGUE' || entrega.status === 'CONCLUIDA') &&
       entrega.data_entrega
     ) {
       const dataEntrega = new Date(entrega.data_entrega);
-      const diffHoras = (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
-      return diffHoras <= 12;
+
+      if (periodo === 'dia') {
+        const diffHoras = (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
+        return diffHoras <= 12; // Dia: até 12h atrás
+      }
+
+      if (limite) {
+        return dataEntrega >= limite && dataEntrega <= agora;
+      }
     }
+
     return false;
   });
-}, [relatorio]);
+}, [relatorio, periodo]);
 
-  // Filtra entregas apenas com motorista atribuído
-const entregasComMotorista = useMemo(() => {
-  return relatorio.filter((entrega: any) => entrega.motorista && entrega.motorista_nome);
-}, [relatorio]);
+
+
+
+
 
 // Agrupa as entregas válidas por motorista
 const entregasAgrupadas = useMemo(() => {
@@ -177,17 +262,33 @@ const entregasAgrupadas = useMemo(() => {
 
 
   // Filtrar entregas pela busca
-  const filteredRelatorio = useMemo(() => {
-  if (!searchText) return entregasValidas;
-  return entregasValidas.filter((item: any) =>
+const filteredRelatorio = useMemo(() => {
+  let base = relatorio.filter((entrega: any) => {
+    if (!entrega.motorista) return false;
+
+    if (entrega.status === 'PENDENTE') return true;
+
+    if ((entrega.status === 'ENTREGUE' || entrega.status === 'CONCLUIDA') && entrega.data_entrega) {
+      const agora = new Date();
+      const dataEntrega = new Date(entrega.data_entrega);
+      const diffHoras = (agora.getTime() - dataEntrega.getTime()) / (1000 * 60 * 60);
+      return diffHoras <= 12;
+    }
+
+    return false;
+  });
+
+  if (!searchText) return base;
+
+  return base.filter((item: any) =>
     item.cliente_nome?.toLowerCase().includes(searchText.toLowerCase()) ||
     item.nota?.toString().includes(searchText)
   );
-}, [entregasValidas, searchText]);
+}, [relatorio, searchText, periodo]);
 
 
 const abrirImagem = (path: string) => {
-  setImagemSelecionada(`${API.BASE}/uploads/${path.split('/').pop()}`);
+  setImagemSelecionada(`${API.BASE()}/uploads/${path.split('/').pop()}`);
   setModalCanhotoVisible(true); // ✅ abre o modal correto
 };
 
@@ -431,22 +532,91 @@ const abrirImagem = (path: string) => {
           </View>
 
           <Text style={styles.sectionTitle}>Resumo por Motorista</Text>
-          
-         {Object.entries(entregasAgrupadas).map(([key, value]) => (
-  <View key={key}>
-    <Text style={styles.groupTitle}>{value.motorista}</Text>
-    {value.entregas
-      .filter((item: any) =>
-        item.cliente_nome?.toLowerCase().includes(searchText.toLowerCase()) ||
-        item.nota?.toString().includes(searchText)
-      )
-      .map((entrega: any) => (
-        <View key={entrega.id} style={styles.entregaCard}>
-          {renderEntregaItem({ item: entrega })}
-        </View>
-      ))}
+
+{Object.keys(entregasAgrupadas).length === 0 ? (
+  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 40 }}>
+    <MaterialIcons name="inventory" size={60} color="#bdc3c7" />
+    <Text style={{ color: '#7f8c8d', fontSize: 18, marginTop: 12, textAlign: 'center' }}>
+      Nenhum motorista com entregas hoje
+    </Text>
+
+    <TouchableOpacity
+      onPress={carregarRelatorio}
+      disabled={carregando}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 20,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        backgroundColor: carregando ? '#95a5a6' : '#3498db',
+        borderRadius: 8,
+        opacity: carregando ? 0.7 : 1,
+      }}
+    >
+      {carregando ? (
+        <>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 16, marginLeft: 8 }}>Atualizando...</Text>
+        </>
+      ) : (
+        <>
+          <MaterialIcons name="refresh" size={24} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 16, marginLeft: 8 }}>Atualizar</Text>
+        </>
+      )}
+    </TouchableOpacity>
   </View>
-))}
+) : (
+  <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+    {Object.entries(entregasAgrupadas).map(([nome, dados]: any) => (
+      <View key={nome}>
+        {renderResumoCard(nome, dados)}
+      </View>
+    ))}
+  </ScrollView>
+)}
+
+
+
+          
+        {Object.keys(entregasAgrupadas).length === 0 && (
+  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 40 }}>
+    <MaterialIcons name="inventory" size={60} color="#bdc3c7" />
+    <Text style={{ color: '#7f8c8d', fontSize: 18, marginTop: 12, textAlign: 'center' }}>
+      Nenhum motorista com entregas hoje
+    </Text>
+
+    <TouchableOpacity
+      onPress={carregarRelatorio}
+      disabled={carregando}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 20,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        backgroundColor: carregando ? '#95a5a6' : '#3498db',
+        borderRadius: 8,
+        opacity: carregando ? 0.7 : 1,
+      }}
+    >
+      {carregando ? (
+        <>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 16, marginLeft: 8 }}>Atualizando...</Text>
+        </>
+      ) : (
+        <>
+          <MaterialIcons name="refresh" size={24} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 16, marginLeft: 8 }}>Atualizar</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  </View>
+)}
+
+
 
 
         </ScrollView>

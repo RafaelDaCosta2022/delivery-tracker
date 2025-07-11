@@ -26,43 +26,90 @@ export default function LoginScreen() {
   const [carregando, setCarregando] = useState(false);
   const [lembrarUsuario, setLembrarUsuario] = useState(true);
   const navigation = useNavigation();
+  const [shakeAnim] = useState(new Animated.Value(0));
   
   const [fadeAnim] = useState(new Animated.Value(0));
   const [logoScale] = useState(new Animated.Value(0.8));
-
-  useEffect(() => {
-    // Animação ao entrar na tela
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true
+const shake = () => {
+    shakeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeAnim, {
+        toValue: 20,
+        duration: 50,
+        useNativeDriver: true,
       }),
-      Animated.spring(logoScale, {
-        toValue: 1,
-        friction: 4,
-        useNativeDriver: true
-      })
+      Animated.timing(shakeAnim, {
+        toValue: -20,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 6,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: -6,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 0,
+        duration: 50,
+        useNativeDriver: true,
+      }),
     ]).start();
+  };
+  
 
-    const carregarLoginSalvo = async () => {
-      try {
-        const salvo = await AsyncStorage.getItem('credenciais');
-        if (salvo) {
-          const { nome: savedNome, senha: savedSenha, lembrar } = JSON.parse(salvo);
-          if (lembrar) {
-            setNome(savedNome);
-            setSenha(savedSenha);
-            setLembrarUsuario(true);
-          }
+useEffect(() => {
+  const carregarLoginSalvo = async () => {
+    try {
+      // Corrigir nome da chave (de 'credenciais' para 'credenciais')
+      const salvo = await AsyncStorage.getItem('credenciais');
+      console.log('🔐 Conteúdo carregado do storage:', salvo);
+
+      if (salvo) {
+        const credenciais = JSON.parse(salvo);
+        
+        // Verificar se a flag lembrar está ativa
+        if (credenciais.lembrar) {
+          console.log('🔐 Credenciais válidas encontradas');
+          setNome(credenciais.nome || '');
+          setSenha(credenciais.senha || '');
+          setLembrarUsuario(true);
+        } else {
+          console.log('🔐 Lembrar usuário desativado');
+          setLembrarUsuario(false);
         }
-      } catch (error) {
-        console.error('Erro ao carregar credenciais:', error);
+      } else {
+        console.log('🔐 Nenhuma credencial encontrada');
+        setLembrarUsuario(false);
       }
-    };
-    
-    carregarLoginSalvo();
-  }, []);
+    } catch (error) {
+      console.error('❌ Erro ao carregar credenciais:', error);
+      setLembrarUsuario(false);
+    }
+  };
+
+ 
+
+  carregarLoginSalvo();
+
+  // Animação da logo
+  Animated.parallel([
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 800,
+      useNativeDriver: true,
+    }),
+    Animated.spring(logoScale, {
+      toValue: 1,
+      friction: 4,
+      useNativeDriver: true,
+    }),
+  ]).start();
+}, []);
 
   const logar = async () => {
   if (!nome.trim() || !senha.trim()) {
@@ -73,70 +120,78 @@ export default function LoginScreen() {
   setCarregando(true);
 
   try {
-    const url = API.LOGIN(); // ✅ corrigido
+    const url = API.LOGIN();
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome, senha }),
+     body: JSON.stringify({ nome: nome.trim(), senha: senha.trim() }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 0.9,
-          duration: 100,
-          useNativeDriver: true
-        }),
-        Animated.spring(fadeAnim, {
-          toValue: 1,
-          friction: 3,
-          useNativeDriver: true
-        })
-      ]).start();
+  shake(); // 👈 aqui dispara o shake
+  Animated.sequence([
+    Animated.timing(fadeAnim, {
+      toValue: 0.8,
+      duration: 80,
+      useNativeDriver: true,
+    }),
+    Animated.spring(fadeAnim, {
+      toValue: 1,
+      friction: 2,
+      useNativeDriver: true,
+    }),
+  ]).start();
 
-      Alert.alert('Erro de login', data.error || 'Credenciais inválidas');
+  Alert.alert('Erro de login', data.error || 'Credenciais inválidas');
+  return;
+}
+
+    // 🔐 Salvar ou limpar credenciais
+    if (lembrarUsuario) {
+      const json = JSON.stringify({ nome, senha, lembrar: true });
+      console.log('💾 Salvando credenciais:', json);
+      await AsyncStorage.setItem('credenciais', json);
+      await new Promise(resolve => setTimeout(resolve, 100));
     } else {
-      if (lembrarUsuario) {
-        await AsyncStorage.setItem('credenciais', JSON.stringify({
-          nome,
-          senha,
-          lembrar: lembrarUsuario
-        }));
-      } else {
-        await AsyncStorage.removeItem('credenciais');
-      }
-
-      const cleanToken = (data.token || '').trim().replace(/\s+/g, '');
-      await login({
-        id: data.id,
-        nome: data.nome,
-        tipo: data.tipo,
-        token: cleanToken
-      });
-
-      if (['motorista', 'vendedor', 'admin'].includes(data.tipo)) {
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true
-        }).start(() => {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Main' }], // ✅ mantenha se o App.js usa "Main"
-          });
-        });
-      } else {
-        Alert.alert('Acesso não permitido', 'Seu perfil não tem acesso ao sistema');
-      }
+      console.log('🧹 Limpando credenciais');
+      await AsyncStorage.removeItem('credenciais');
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
+
+    const cleanToken = (data.token || '').trim().replace(/\s+/g, '');
+    await login({
+      id: data.id,
+      nome: data.nome,
+      tipo: data.tipo,
+      token: cleanToken,
+    });
+
+    if (['motorista', 'vendedor', 'admin'].includes(data.tipo)) {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }).start(() => {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Main' }],
+        });
+      });
+    } else {
+      Alert.alert('Acesso não permitido', 'Seu perfil não tem acesso ao sistema');
+    }
+
   } catch (err) {
     Alert.alert('Erro de conexão', 'Não foi possível conectar ao servidor');
+    console.error('❌ Erro no login:', err);
   } finally {
     setCarregando(false);
   }
-}; // <-- ESSE ENCERRAMENTO estava faltando
+};
+
+ // <-- ESSE ENCERRAMENTO estava faltando
 
   return (
     <KeyboardAvoidingView
@@ -145,7 +200,15 @@ export default function LoginScreen() {
     >
       {/* resto do seu JSX */}
 
-      <Animated.View style={[styles.innerContainer, { opacity: fadeAnim }]}>
+      <Animated.View
+  style={[
+    styles.innerContainer,
+    {
+      opacity: fadeAnim,
+      transform: [{ translateX: shakeAnim }],
+    },
+  ]}
+>
         {/* Cabeçalho com logo animada */}
         <Animated.View style={[styles.header, { transform: [{ scale: logoScale }] }]}>
           
@@ -365,7 +428,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
 
-    configButton: {
+  },
+  
+  configButton: {
   position: 'absolute',
   bottom: 20,
   right: 20,
@@ -377,7 +442,7 @@ const styles = StyleSheet.create({
   shadowOffset: { width: 0, height: 2 },
   shadowOpacity: 0.2,
   shadowRadius: 3,
-},
+
 
   },
 });

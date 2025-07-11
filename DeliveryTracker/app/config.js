@@ -35,7 +35,7 @@ const isValidNgrokUrl = (url: string): boolean => {
 };
 
 // IP padrão inicial
-export const DEFAULT_IP = normalizeUrl('6742-2804-1b3-9201-1324-49df-f321-33a-5eac.ngrok-free.app');
+export const DEFAULT_IP = normalizeUrl('f4b4-2804-1b3-9201-1324-7d32-c873-9285-1f20.ngrok-free.app');
 let customIP: string | null = null;
 let ipInicializado = false;
 
@@ -105,7 +105,7 @@ export const API = {
 
 
 // Verifica se o token é válido
-const isTokenValid = (token: string): boolean => {
+export const isTokenValid = (token: string): boolean => {
   try {
     const tokenParts = token.split('.');
     if (tokenParts.length !== 3) return false;
